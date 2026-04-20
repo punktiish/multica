@@ -73,7 +73,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	b.WriteString("- `multica workspace get --output json` — Get workspace details and context\n")
 	b.WriteString("- `multica workspace members [workspace-id] --output json` — List workspace members (user IDs, names, roles)\n")
 	b.WriteString("- `multica agent list --output json` — List agents in workspace\n")
-	b.WriteString("- `multica repo checkout <url>` — Check out a repository into the working directory (creates a git worktree with a dedicated branch)\n")
+	b.WriteString("- `multica repo checkout <url-or-path>` — Check out a repository into the working directory (creates a git worktree with a dedicated branch; accepts remote URLs or local filesystem paths)\n")
 	b.WriteString("- `multica issue runs <issue-id> --output json` — List all execution runs for an issue (status, timestamps, errors)\n")
 	b.WriteString("- `multica issue run-messages <task-id> [--since <seq>] --output json` — List messages for a specific execution run (supports incremental fetch)\n")
 	b.WriteString("- `multica attachment download <id> [-o <dir>]` — Download an attachment file locally by ID\n")
@@ -98,15 +98,19 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	if len(ctx.Repos) > 0 {
 		b.WriteString("## Repositories\n\n")
 		b.WriteString("The following code repositories are available in this workspace.\n")
-		b.WriteString("Use `multica repo checkout <url>` to check out a repository into your working directory.\n\n")
-		b.WriteString("| URL | Description |\n")
-		b.WriteString("|-----|-------------|\n")
+		b.WriteString("Use `multica repo checkout <url-or-path>` to check out a repository into your working directory.\n\n")
+		b.WriteString("| URL / Path | Type | Description |\n")
+		b.WriteString("|------------|------|-------------|\n")
 		for _, repo := range ctx.Repos {
 			desc := repo.Description
 			if desc == "" {
 				desc = "—"
 			}
-			fmt.Fprintf(&b, "| %s | %s |\n", repo.URL, desc)
+			repoType := repo.Type
+			if repoType == "" {
+				repoType = "remote"
+			}
+			fmt.Fprintf(&b, "| %s | %s | %s |\n", repo.URL, repoType, desc)
 		}
 		b.WriteString("\nThe checkout command creates a git worktree with a dedicated branch. You can check out one or more repos as needed.\n\n")
 	}
@@ -121,7 +125,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 		b.WriteString("- If asked about issues, use `multica issue list --output json` or `multica issue get <id> --output json`\n")
 		b.WriteString("- If asked about the workspace, use `multica workspace get --output json`\n")
 		b.WriteString("- If asked to perform actions (create issues, update status, etc.), use the appropriate CLI commands\n")
-		b.WriteString("- If the task requires code changes, use `multica repo checkout <url>` to get the code first\n")
+		b.WriteString("- If the task requires code changes, use `multica repo checkout <url-or-path>` to get the code first\n")
 		b.WriteString("- Keep responses concise and direct\n\n")
 	} else if ctx.TriggerCommentID != "" {
 		// Comment-triggered: focus on reading and replying

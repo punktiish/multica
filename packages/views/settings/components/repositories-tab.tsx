@@ -5,6 +5,7 @@ import { Save, Plus, Trash2 } from "lucide-react";
 import { Input } from "@multica/ui/components/ui/input";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
+import { NativeSelect, NativeSelectOption } from "@multica/ui/components/ui/native-select";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
@@ -12,7 +13,7 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { memberListOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import { api } from "@multica/core/api";
-import type { Workspace, WorkspaceRepo } from "@multica/core/types";
+import type { Workspace, WorkspaceRepo, RepoType } from "@multica/core/types";
 
 export function RepositoriesTab() {
   const user = useAuthStore((s) => s.user);
@@ -48,7 +49,7 @@ export function RepositoriesTab() {
   };
 
   const handleAddRepo = () => {
-    setRepos([...repos, { url: "", description: "" }]);
+    setRepos([...repos, { type: "remote", url: "", description: "" }]);
   };
 
   const handleRemoveRepo = (index: number) => {
@@ -69,20 +70,31 @@ export function RepositoriesTab() {
         <Card>
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              Git repositories associated with this workspace. Agents use these to clone and work on code.
+              Code repositories associated with this workspace. Agents use these to clone and work on code. Supports remote URLs (e.g. GitHub) and local filesystem paths.
             </p>
 
             {repos.map((repo, index) => (
               <div key={index} className="flex gap-2">
                 <div className="flex-1 space-y-1.5">
-                  <Input
-                    type="url"
-                    value={repo.url}
-                    onChange={(e) => handleRepoChange(index, "url", e.target.value)}
-                    disabled={!canManageWorkspace}
-                    placeholder="https://git.example.com/org/repo.git"
-                    className="text-sm"
-                  />
+                  <div className="flex gap-2">
+                    <NativeSelect
+                      size="sm"
+                      value={repo.type || "remote"}
+                      onChange={(e) => handleRepoChange(index, "type", e.target.value as RepoType)}
+                      disabled={!canManageWorkspace}
+                    >
+                      <NativeSelectOption value="remote">Remote URL</NativeSelectOption>
+                      <NativeSelectOption value="local">Local Path</NativeSelectOption>
+                    </NativeSelect>
+                    <Input
+                      type={repo.type === "local" ? "text" : "url"}
+                      value={repo.url}
+                      onChange={(e) => handleRepoChange(index, "url", e.target.value)}
+                      disabled={!canManageWorkspace}
+                      placeholder={repo.type === "local" ? "/home/user/my-repo" : "https://git.example.com/org/repo.git"}
+                      className="flex-1 text-sm"
+                    />
+                  </div>
                   <Input
                     type="text"
                     value={repo.description}

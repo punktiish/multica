@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,9 +20,9 @@ var repoCmd = &cobra.Command{
 }
 
 var repoCheckoutCmd = &cobra.Command{
-	Use:   "checkout <url>",
+	Use:   "checkout <url-or-path>",
 	Short: "Check out a repository into the working directory",
-	Long:  "Creates a git worktree from the daemon's bare clone cache. Used by agents to check out repos on demand.",
+	Long:  "Creates a git worktree from the daemon's bare clone cache. Accepts a remote URL (e.g. https://github.com/org/repo) or a local filesystem path (e.g. /home/user/my-repo). Used by agents to check out repos on demand.",
 	Args:  exactArgs(1),
 	RunE:  runRepoCheckout,
 }
@@ -31,6 +33,18 @@ func init() {
 
 func runRepoCheckout(cmd *cobra.Command, args []string) error {
 	repoURL := args[0]
+
+	// Auto-detect repo type from the argument.
+	repoType := "remote"
+	if strings.HasPrefix(repoURL, "/") ||
+		strings.HasPrefix(repoURL, "~/") ||
+		strings.HasPrefix(repoURL, "./") ||
+		strings.HasPrefix(repoURL, "../") ||
+		strings.HasPrefix(repoURL, ".\\") ||
+		strings.HasPrefix(repoURL, "..\\") ||
+		(filepath.IsAbs(repoURL) && strings.Contains(repoURL, "\\")) {
+		repoType = "local"
+	}
 
 	daemonPort := os.Getenv("MULTICA_DAEMON_PORT")
 	if daemonPort == "" {
@@ -49,6 +63,7 @@ func runRepoCheckout(cmd *cobra.Command, args []string) error {
 
 	reqBody := map[string]string{
 		"url":          repoURL,
+		"type":         repoType,
 		"workspace_id": workspaceID,
 		"workdir":      workDir,
 		"agent_name":   agentName,

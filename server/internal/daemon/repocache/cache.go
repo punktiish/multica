@@ -24,6 +24,7 @@ func gitEnv() []string {
 
 // RepoInfo describes a repository to cache.
 type RepoInfo struct {
+	Type        string // "remote" or "local"
 	URL         string
 	Description string
 }
@@ -82,23 +83,42 @@ func (c *Cache) Sync(workspaceID string, repos []RepoInfo) error {
 		if repo.URL == "" {
 			continue
 		}
+
+		repoURL := repo.URL
+		// For local repos, expand "~" to the user's home directory so git
+		// commands (which don't perform shell expansion) receive valid paths.
+		if repo.Type == "local" {
+			repoURL = expandPath(repoURL)
+		}
+
+		// For local repos, validate the path exists and is a git repository.
+		if repo.Type == "local" {
+			if !isGitRepo(repoURL) {
+				c.logger.Error("repo cache: local path is not a valid git repo", "path", repoURL)
+				if firstErr == nil {
+					firstErr = fmt.Errorf("local path is not a valid git repo: %s", repoURL)
+				}
+				continue
+			}
+		}
+
 		barePath := filepath.Join(wsDir, bareDirName(repo.URL))
 
 		repoLock := c.lockForRepo(barePath)
 		repoLock.Lock()
 		if isBareRepo(barePath) {
 			// Already cached — fetch latest.
-			c.logger.Info("repo cache: fetching", "url", repo.URL, "path", barePath)
+			c.logger.Info("repo cache: fetching", "url", repoURL, "type", repo.Type, "path", barePath)
 			if err := gitFetch(barePath); err != nil {
-				c.logger.Warn("repo cache: fetch failed", "url", repo.URL, "error", err)
+				c.logger.Warn("repo cache: fetch failed", "url", repoURL, "error", err)
 				if firstErr == nil {
 					firstErr = err
 				}
 			}
 		} else {
 			// Not cached — bare clone.
-			c.logger.Info("repo cache: cloning", "url", repo.URL, "path", barePath)
-			if err := gitCloneBare(repo.URL, barePath); err != nil {
+			c.logger.Info("repo cache: cloning", "url", repoURL, "type", repo.Type, "path", barePath)
+			if err := gitCloneBare(repoURL, barePath); err != nil {
 				c.logger.Error("repo cache: clone failed", "url", repo.URL, "error", err)
 				if firstErr == nil {
 					firstErr = err
@@ -154,6 +174,31 @@ func isBareRepo(path string) bool {
 	// A bare repo has a HEAD file at the root.
 	_, err := os.Stat(filepath.Join(path, "HEAD"))
 	return err == nil
+}
+
+// isGitRepo checks if a path is a valid git repository (regular or bare).
+func isGitRepo(path string) bool {
+	cmd := exec.Command("git", "-C", path, "rev-parse", "--is-inside-work-tree")
+	if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) == "true" {
+		return true
+	}
+	// Also check for bare repos.
+	cmd = exec.Command("git", "-C", path, "rev-parse", "--is-bare-repository")
+	if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) == "true" {
+		return true
+	}
+	return false
+}
+
+// expandPath expands a leading "~" to the user's home directory.
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
 }
 
 // modernFetchRefspec is the remote-tracking refspec that keeps fetched heads
@@ -278,7 +323,8 @@ func setFetchRefspec(barePath, refspec string) error {
 // WorktreeParams holds inputs for creating a worktree from a cached bare clone.
 type WorktreeParams struct {
 	WorkspaceID string // workspace that owns the repo
-	RepoURL     string // remote URL to look up in the cache
+	RepoURL     string // remote URL or local path to look up in the cache
+	RepoType    string // "remote" or "local"
 	WorkDir     string // parent directory for the worktree (e.g. task workdir)
 	AgentName   string // for branch naming
 	TaskID      string // for branch naming uniqueness
@@ -311,12 +357,15 @@ func (c *Cache) CreateWorktree(params WorktreeParams) (*WorktreeResult, error) {
 	// to the modern remote-tracking layout on first run, so subsequent fetches
 	// never collide with the refs/heads/agent/* branches that worktree creation
 	// locks in this same bare repo.
+	// For local repos, origin points to the local filesystem path so fetch
+	// picks up any new commits made there since the last sync.
 	if err := gitFetch(barePath); err != nil {
 		// Non-fatal: preserve cached state and continue, but make the warning
 		// loud enough that it's findable in the daemon log. The agent will
 		// receive an older snapshot than the remote head.
 		c.logger.Warn("repo checkout: fetch failed, agent will see possibly stale code",
 			"url", params.RepoURL,
+			"type", params.RepoType,
 			"error", err,
 		)
 	}

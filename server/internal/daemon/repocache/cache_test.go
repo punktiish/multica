@@ -58,6 +58,9 @@ func TestBareDirName(t *testing.T) {
 		{"https://github.com/org/repo/", "repo.git"},
 		{"my-repo", "my-repo.git"},
 		{"", "repo.git"},
+		{"/home/user/projects/my-app", "my-app.git"},
+		{"/var/repos/team-project/", "team-project.git"},
+		{"~/projects/local-repo", "local-repo.git"},
 	}
 	for _, tt := range tests {
 		if got := bareDirName(tt.input); got != tt.want {
@@ -80,6 +83,22 @@ func TestIsBareRepo(t *testing.T) {
 	emptyDir := t.TempDir()
 	if isBareRepo(emptyDir) {
 		t.Error("expected empty dir to not be detected as bare repo")
+	}
+}
+
+func TestIsGitRepo(t *testing.T) {
+	t.Parallel()
+
+	// A real git repo should be detected.
+	repo := createTestRepo(t)
+	if !isGitRepo(repo) {
+		t.Error("expected git repo to be detected")
+	}
+
+	// An empty directory should not.
+	emptyDir := t.TempDir()
+	if isGitRepo(emptyDir) {
+		t.Error("expected empty dir to not be detected as git repo")
 	}
 }
 
@@ -748,5 +767,91 @@ func TestGetRemoteDefaultBranchAmbiguousOriginReturnsEmpty(t *testing.T) {
 	got := getRemoteDefaultBranch(barePath)
 	if got != "" {
 		t.Fatalf("getRemoteDefaultBranch = %q, want \"\" (ambiguous origin/* must not guess)", got)
+	}
+}
+
+func TestSyncLocalRepo(t *testing.T) {
+	t.Parallel()
+	sourceRepo := createTestRepo(t)
+	cacheRoot := t.TempDir()
+
+	cache := New(cacheRoot, testLogger())
+
+	// Sync with Type="local" should clone from a local path.
+	err := cache.Sync("ws-local", []RepoInfo{
+		{URL: sourceRepo, Type: "local", Description: "local test repo"},
+	})
+	if err != nil {
+		t.Fatalf("Sync with local type failed: %v", err)
+	}
+
+	// Lookup should find the cached repo.
+	path := cache.Lookup("ws-local", sourceRepo)
+	if path == "" {
+		t.Fatal("expected to find cached local repo")
+	}
+	if !isBareRepo(path) {
+		t.Fatalf("expected bare repo at %s", path)
+	}
+}
+
+func TestSyncLocalRepoInvalidPath(t *testing.T) {
+	t.Parallel()
+	cacheRoot := t.TempDir()
+	cache := New(cacheRoot, testLogger())
+
+	// Sync with Type="local" but a non-existent path should fail.
+	err := cache.Sync("ws-bad", []RepoInfo{
+		{URL: "/nonexistent/path/to/repo", Type: "local"},
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent local path")
+	}
+	if !strings.Contains(err.Error(), "not a valid git repo") {
+		t.Errorf("expected 'not a valid git repo' error, got: %v", err)
+	}
+}
+
+func TestCreateWorktreeLocalRepo(t *testing.T) {
+	t.Parallel()
+	sourceRepo := createTestRepo(t)
+	cacheRoot := t.TempDir()
+
+	cache := New(cacheRoot, testLogger())
+	if err := cache.Sync("ws-local-wt", []RepoInfo{{URL: sourceRepo, Type: "local"}}); err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+
+	workDir := t.TempDir()
+	result, err := cache.CreateWorktree(WorktreeParams{
+		WorkspaceID: "ws-local-wt",
+		RepoURL:     sourceRepo,
+		RepoType:    "local",
+		WorkDir:     workDir,
+		AgentName:   "Local Agent",
+		TaskID:      "l1l2l3l4-m5n6-7890-abcd-ef1234567890",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree with local repo failed: %v", err)
+	}
+
+	// Verify the worktree was created.
+	if _, err := os.Stat(result.Path); os.IsNotExist(err) {
+		t.Fatalf("worktree path does not exist: %s", result.Path)
+	}
+
+	// Verify branch name format.
+	if !strings.HasPrefix(result.BranchName, "agent/local-agent/") {
+		t.Errorf("expected branch to start with 'agent/local-agent/', got %q", result.BranchName)
+	}
+
+	// Verify the worktree is on the correct branch.
+	cmd := exec.Command("git", "-C", result.Path, "branch", "--show-current")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("show branch failed: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != result.BranchName {
+		t.Errorf("expected branch %q, got %q", result.BranchName, got)
 	}
 }

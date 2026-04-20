@@ -14,7 +14,8 @@ import (
 
 // RepoContextForEnv describes a workspace repo available for checkout.
 type RepoContextForEnv struct {
-	URL         string // remote URL
+	Type        string // "remote" or "local"
+	URL         string // remote URL or local filesystem path
 	Description string // human-readable description
 }
 

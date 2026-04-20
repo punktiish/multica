@@ -46,6 +46,7 @@ func (d *Daemon) listenHealth() (net.Listener, error) {
 // repoCheckoutRequest is the body of a POST /repo/checkout request.
 type repoCheckoutRequest struct {
 	URL         string `json:"url"`
+	Type        string `json:"type"`        // "remote" or "local"
 	WorkspaceID string `json:"workspace_id"`
 	WorkDir     string `json:"workdir"`
 	AgentName   string `json:"agent_name"`
@@ -137,6 +138,7 @@ func (d *Daemon) serveHealth(ctx context.Context, ln net.Listener, startedAt tim
 		result, err := d.repoCache.CreateWorktree(repocache.WorktreeParams{
 			WorkspaceID: req.WorkspaceID,
 			RepoURL:     req.URL,
+			RepoType:    req.Type,
 			WorkDir:     req.WorkDir,
 			AgentName:   req.AgentName,
 			TaskID:      req.TaskID,

@@ -484,3 +484,58 @@ func TestEnsureRepoReadyConcurrentMissRefreshesOnce(t *testing.T) {
 		t.Fatalf("expected exactly 1 refresh call, got %d", got)
 	}
 }
+
+func TestRepoDataToInfo(t *testing.T) {
+	t.Parallel()
+
+	repos := []RepoData{
+		{URL: "https://github.com/org/remote-repo", Type: "remote", Description: "Remote repo"},
+		{URL: "/home/user/projects/local-app", Type: "local", Description: "Local repo"},
+		{URL: "https://github.com/org/legacy-repo", Description: "Legacy (no type)"},
+	}
+	info := repoDataToInfo(repos)
+
+	if len(info) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(info))
+	}
+	if info[0].Type != "remote" {
+		t.Errorf("info[0].Type = %q, want %q", info[0].Type, "remote")
+	}
+	if info[0].URL != "https://github.com/org/remote-repo" {
+		t.Errorf("info[0].URL = %q, want %q", info[0].URL, "https://github.com/org/remote-repo")
+	}
+	if info[1].Type != "local" {
+		t.Errorf("info[1].Type = %q, want %q", info[1].Type, "local")
+	}
+	if info[2].Type != "" {
+		t.Errorf("info[2].Type = %q, want empty (legacy)", info[2].Type)
+	}
+}
+
+func TestConvertReposForEnv(t *testing.T) {
+	t.Parallel()
+
+	repos := []RepoData{
+		{URL: "https://github.com/org/remote-repo", Type: "remote", Description: "Remote repo"},
+		{URL: "/home/user/projects/local-app", Type: "local", Description: "Local repo"},
+	}
+	result := convertReposForEnv(repos)
+
+	if len(result) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result))
+	}
+	if result[0].Type != "remote" {
+		t.Errorf("result[0].Type = %q, want %q", result[0].Type, "remote")
+	}
+	if result[1].Type != "local" {
+		t.Errorf("result[1].Type = %q, want %q", result[1].Type, "local")
+	}
+	if result[1].URL != "/home/user/projects/local-app" {
+		t.Errorf("result[1].URL = %q, want %q", result[1].URL, "/home/user/projects/local-app")
+	}
+
+	// Empty input returns nil.
+	if got := convertReposForEnv(nil); got != nil {
+		t.Errorf("expected nil for empty input, got %v", got)
+	}
+}

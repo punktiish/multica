@@ -50,9 +50,6 @@ func init() {
 func runWorkspaceList(cmd *cobra.Command, _ []string) error {
 	serverURL := resolveServerURL(cmd)
 	token := resolveToken(cmd)
-	if token == "" {
-		return fmt.Errorf("not authenticated: run 'multica login' first")
-	}
 
 	client := cli.NewAPIClient(serverURL, "", token)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -169,4 +166,3 @@ func runWorkspaceMembers(cmd *cobra.Command, args []string) error {
 	cli.PrintTable(os.Stdout, headers, rows)
 	return nil
 }
-

@@ -36,38 +36,6 @@ const PROTOCOL = "multica";
 
 let mainWindow: BrowserWindow | null = null;
 
-// --- Deep link helpers ---------------------------------------------------
-
-function handleDeepLink(url: string): void {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== `${PROTOCOL}:`) return;
-
-    // multica://auth/callback?token=<jwt>
-    if (parsed.hostname === "auth" && parsed.pathname === "/callback") {
-      const token = parsed.searchParams.get("token");
-      if (token && mainWindow) {
-        mainWindow.webContents.send("auth:token", token);
-      }
-      return;
-    }
-
-    // multica://invite/<invitationId>
-    // Dispatched from the web invite page when the user chooses "Open in
-    // desktop app". The renderer opens the invite overlay — no tab, no
-    // route persistence, so deep-linking the same invite twice stays safe.
-    if (parsed.hostname === "invite") {
-      const id = parsed.pathname.replace(/^\//, "");
-      if (id && mainWindow) {
-        mainWindow.webContents.send("invite:open", decodeURIComponent(id));
-      }
-      return;
-    }
-  } catch {
-    // Ignore malformed URLs
-  }
-}
-
 // --- Window creation -----------------------------------------------------
 
 function createWindow(): void {
@@ -164,7 +132,7 @@ if (!gotTheLock) {
 
     // On Windows the deep link URL is the last argv entry
     const deepLinkUrl = argv.find((arg) => arg.startsWith(`${PROTOCOL}://`));
-    if (deepLinkUrl) handleDeepLink(deepLinkUrl);
+    if (deepLinkUrl) mainWindow?.focus();
   });
 
   app.whenReady().then(() => {
@@ -184,11 +152,7 @@ if (!gotTheLock) {
       optimizer.watchWindowShortcuts(window);
     });
 
-    // IPC: open URL in default browser (used by renderer for Google login).
-    // All scheme-allowlist enforcement lives in openExternalSafely — this
-    // is the single audit point for renderer-controlled URLs reaching the
-    // OS shell under the app's intentional webSecurity: false + sandbox:
-    // false configuration.
+    // IPC: open URL in default browser.
     ipcMain.handle("shell:openExternal", (_event, url: string) => {
       return openExternalSafely(url);
     });
@@ -206,13 +170,12 @@ if (!gotTheLock) {
     setupAutoUpdater(() => mainWindow);
     setupDaemonManager(() => mainWindow);
 
-    // macOS: deep link arrives via open-url event
-    app.on("open-url", (_event, url) => {
+    // macOS: protocol links only focus the already-running personal tool.
+    app.on("open-url", () => {
       if (mainWindow) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.focus();
       }
-      handleDeepLink(url);
     });
 
     app.on("activate", () => {
@@ -224,9 +187,7 @@ if (!gotTheLock) {
   const deepLinkArg = process.argv.find((arg) =>
     arg.startsWith(`${PROTOCOL}://`),
   );
-  if (deepLinkArg) {
-    app.whenReady().then(() => handleDeepLink(deepLinkArg));
-  }
+  if (deepLinkArg) app.whenReady().then(() => mainWindow?.focus());
 }
 
 app.on("window-all-closed", () => {

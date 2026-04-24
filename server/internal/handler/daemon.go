@@ -136,6 +136,12 @@ func normalizeWorkspaceRepos(repos []RepoData) []RepoData {
 	for _, repo := range repos {
 		url := strings.TrimSpace(repo.URL)
 		if url == "" {
+			url = strings.TrimSpace(repo.LegacyURL)
+		}
+		if url == "" {
+			continue
+		}
+		if strings.Contains(url, "://") || strings.HasPrefix(url, "git@") {
 			continue
 		}
 		if _, exists := seen[url]; exists {
@@ -527,9 +533,9 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	var (
-		outcome                    = "unauth"
-		authMs, claimMs, buildMs   int64
-		buildStart                 time.Time
+		outcome                  = "unauth"
+		authMs, claimMs, buildMs int64
+		buildStart               time.Time
 	)
 	defer func() {
 		// Emit at function exit so error / unauth paths also carry timing.

@@ -115,7 +115,7 @@ type Client struct {
 // Hub manages WebSocket connections organized by workspace rooms.
 type Hub struct {
 	rooms      map[string]map[*Client]bool // workspaceID -> clients
-	broadcast  chan []byte                  // global broadcast (daemon events)
+	broadcast  chan []byte                 // global broadcast (daemon events)
 	register   chan *Client
 	unregister chan *Client
 	mu         sync.RWMutex
@@ -373,7 +373,7 @@ func HandleWebSocket(hub *Hub, mc MembershipChecker, pr PATResolver, resolveSlug
 	}
 
 	// Try cookie auth first (web clients).
-	var userID string
+	userID := strings.TrimSpace(r.Header.Get("X-User-ID"))
 	if cookie, err := r.Cookie(auth.AuthCookieName); err == nil && cookie.Value != "" {
 		uid, errMsg := authenticateToken(cookie.Value, pr, r.Context())
 		if errMsg != "" {

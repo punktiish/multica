@@ -7,8 +7,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"github.com/resend/resend-go/v2"
 )
 
 // maxSubjectFieldRunes bounds how much user-controlled text (workspace name,
@@ -17,24 +15,16 @@ import (
 const maxSubjectFieldRunes = 60
 
 type EmailService struct {
-	client    *resend.Client
 	fromEmail string
 }
 
 func NewEmailService() *EmailService {
-	apiKey := os.Getenv("RESEND_API_KEY")
 	from := os.Getenv("RESEND_FROM_EMAIL")
 	if from == "" {
-		from = "noreply@multica.ai"
-	}
-
-	var client *resend.Client
-	if apiKey != "" {
-		client = resend.NewClient(apiKey)
+		from = "local@multica.local"
 	}
 
 	return &EmailService{
-		client:    client,
 		fromEmail: from,
 	}
 }
@@ -44,26 +34,8 @@ func NewEmailService() *EmailService {
 // If that ever changes, escape the user-controlled fields the same way
 // SendInvitationEmail does.
 func (s *EmailService) SendVerificationCode(to, code string) error {
-	if s.client == nil {
-		fmt.Printf("[DEV] Verification code for %s: %s\n", to, code)
-		return nil
-	}
-
-	params := &resend.SendEmailRequest{
-		From:    s.fromEmail,
-		To:      []string{to},
-		Subject: "Your Multica verification code",
-		Html: fmt.Sprintf(
-			`<div style="font-family: sans-serif; max-width: 400px; margin: 0 auto;">
-				<h2>Your verification code</h2>
-				<p style="font-size: 32px; font-weight: bold; letter-spacing: 8px; margin: 24px 0;">%s</p>
-				<p>This code expires in 10 minutes.</p>
-				<p style="color: #666; font-size: 14px;">If you didn't request this code, you can safely ignore this email.</p>
-			</div>`, code),
-	}
-
-	_, err := s.client.Emails.Send(params)
-	return err
+	fmt.Printf("[LOCAL] Verification code for %s: %s\n", to, code)
+	return nil
 }
 
 // SendInvitationEmail notifies the invitee that they have been invited to a workspace.
@@ -75,26 +47,27 @@ func (s *EmailService) SendInvitationEmail(to, inviterName, workspaceName, invit
 	}
 	inviteURL := fmt.Sprintf("%s/invite/%s", appURL, invitationID)
 
-	if s.client == nil {
-		fmt.Printf("[DEV] Invitation email to %s: %s invited you to %s — %s\n", to, inviterName, workspaceName, inviteURL)
-		return nil
-	}
+	fmt.Printf("[LOCAL] Invitation email disabled for %s: %s invited you to %s — %s\n", to, inviterName, workspaceName, inviteURL)
+	return nil
+}
 
-	params := buildInvitationParams(s.fromEmail, to, inviterName, workspaceName, inviteURL)
-	_, err := s.client.Emails.Send(params)
-	return err
+type EmailParams struct {
+	From    string
+	To      []string
+	Subject string
+	Html    string
 }
 
 // buildInvitationParams assembles the Resend request for an invitation email.
 // Separated from SendInvitationEmail so the sanitization behavior is unit-testable
 // without needing to mock the Resend SDK.
-func buildInvitationParams(from, to, inviterName, workspaceName, inviteURL string) *resend.SendEmailRequest {
+func buildInvitationParams(from, to, inviterName, workspaceName, inviteURL string) *EmailParams {
 	safeWorkspace := html.EscapeString(workspaceName)
 	safeInviter := html.EscapeString(inviterName)
 	subjectInviter := sanitizeSubjectField(inviterName)
 	subjectWorkspace := sanitizeSubjectField(workspaceName)
 
-	return &resend.SendEmailRequest{
+	return &EmailParams{
 		From:    from,
 		To:      []string{to},
 		Subject: fmt.Sprintf("%s invited you to %s on Multica", subjectInviter, subjectWorkspace),

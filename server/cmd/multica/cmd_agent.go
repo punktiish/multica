@@ -186,9 +186,7 @@ func resolveServerURL(cmd *cobra.Command) string {
 	if err == nil && cfg.ServerURL != "" {
 		return normalizeAPIBaseURL(cfg.ServerURL)
 	}
-	fmt.Fprintln(os.Stderr, "No server configured. Run 'multica setup' first.")
-	os.Exit(1)
-	return "" // unreachable
+	return "http://localhost:8080"
 }
 
 func normalizeAPIBaseURL(raw string) string {

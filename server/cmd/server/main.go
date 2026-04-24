@@ -13,6 +13,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/logger"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/solo"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -22,9 +23,6 @@ func main() {
 	// Warn about missing configuration
 	if os.Getenv("JWT_SECRET") == "" {
 		slog.Warn("JWT_SECRET is not set — using insecure default. Set JWT_SECRET for production use.")
-	}
-	if os.Getenv("RESEND_API_KEY") == "" {
-		slog.Warn("RESEND_API_KEY is not set — email verification codes will be printed to the log instead of emailed.")
 	}
 
 	port := os.Getenv("PORT")
@@ -52,6 +50,13 @@ func main() {
 	}
 	slog.Info("connected to database")
 	logPoolConfig(pool)
+
+	if identity, err := solo.Ensure(ctx, pool); err != nil {
+		slog.Error("unable to bootstrap solo local identity", "error", err)
+		os.Exit(1)
+	} else {
+		slog.Info("solo local identity ready", "user_id", identity.UserID, "workspace_id", identity.WorkspaceID)
+	}
 
 	bus := events.New()
 	hub := realtime.NewHub()

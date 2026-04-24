@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -214,6 +215,45 @@ type UpdateWorkspaceRequest struct {
 	IssuePrefix *string `json:"issue_prefix"`
 }
 
+type localRepoRequest struct {
+	Path        string `json:"path"`
+	Description string `json:"description"`
+}
+
+func normalizeLocalRepositoryPayload(raw any) ([]byte, error) {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid repositories")
+	}
+
+	var repos []localRepoRequest
+	if err := json.Unmarshal(data, &repos); err != nil {
+		return nil, fmt.Errorf("repositories must be a list")
+	}
+
+	normalized := make([]localRepoRequest, 0, len(repos))
+	seen := make(map[string]struct{}, len(repos))
+	for _, repo := range repos {
+		path := strings.TrimSpace(repo.Path)
+		if path == "" {
+			return nil, fmt.Errorf("repository path is required")
+		}
+		if strings.Contains(path, "://") || strings.HasPrefix(path, "git@") || strings.HasPrefix(path, "ssh://") {
+			return nil, fmt.Errorf("remote repositories are not supported")
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		normalized = append(normalized, localRepoRequest{
+			Path:        path,
+			Description: strings.TrimSpace(repo.Description),
+		})
+	}
+
+	return json.Marshal(normalized)
+}
+
 func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := workspaceIDFromURL(r, "id")
 
@@ -245,7 +285,11 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		params.Settings = s
 	}
 	if req.Repos != nil {
-		reposJSON, _ := json.Marshal(req.Repos)
+		reposJSON, err := normalizeLocalRepositoryPayload(req.Repos)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		params.Repos = reposJSON
 	}
 	if req.IssuePrefix != nil {

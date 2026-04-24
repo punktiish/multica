@@ -17,25 +17,21 @@ import (
 var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Configure the CLI, authenticate, and start the daemon",
-	Long: `Configures the CLI to connect to Multica Cloud (multica.ai), then
-authenticates via browser and starts the agent daemon.
+	Long: `Configures the CLI to connect to the local Multica server, then
+starts the agent daemon.
 
 If a configuration already exists, you will be prompted before overwriting.
 
-Use 'multica setup self-host' to connect to a self-hosted server instead.
-
 Use --profile to create an isolated configuration for a separate environment:
-  multica setup self-host --profile staging --server-url https://api-staging.co`,
-	RunE: runSetupCloud,
+  multica setup --profile dev --server-url http://localhost:8080`,
+	RunE: runSetupSelfHost,
 }
 
 var setupCloudCmd = &cobra.Command{
 	Use:   "cloud",
-	Short: "Configure the CLI for Multica Cloud (multica.ai)",
-	Long: `Explicitly configures the CLI to connect to Multica Cloud (multica.ai).
-
-This is equivalent to running 'multica setup' without a subcommand.`,
-	RunE: runSetupCloud,
+	Short: "Deprecated alias for local setup",
+	Long:  "Cloud setup is disabled in solo local mode. This command configures the local server instead.",
+	RunE:  runSetupSelfHost,
 }
 
 var setupSelfHostCmd = &cobra.Command{
@@ -54,6 +50,16 @@ Examples:
 }
 
 func init() {
+	setupCmd.Flags().String("server-url", "", "Backend server URL (default http://localhost:8080)")
+	setupCmd.Flags().String("app-url", "", "Frontend app URL (default http://localhost:3000)")
+	setupCmd.Flags().Int("port", 8080, "Backend server port (used when --server-url is not set)")
+	setupCmd.Flags().Int("frontend-port", 3000, "Frontend port (used when --app-url is not set)")
+
+	setupCloudCmd.Flags().String("server-url", "", "Backend server URL (default http://localhost:8080)")
+	setupCloudCmd.Flags().String("app-url", "", "Frontend app URL (default http://localhost:3000)")
+	setupCloudCmd.Flags().Int("port", 8080, "Backend server port (used when --server-url is not set)")
+	setupCloudCmd.Flags().Int("frontend-port", 3000, "Frontend port (used when --app-url is not set)")
+
 	setupSelfHostCmd.Flags().String("server-url", "", "Backend server URL (e.g. https://api.internal.co)")
 	setupSelfHostCmd.Flags().String("app-url", "", "Frontend app URL (e.g. https://app.internal.co)")
 	setupSelfHostCmd.Flags().Int("port", 8080, "Backend server port (used when --server-url is not set)")
@@ -105,45 +111,6 @@ func confirmOverwrite(profile string) (bool, error) {
 	return true, nil
 }
 
-func runSetupCloud(cmd *cobra.Command, args []string) error {
-	profile := resolveProfile(cmd)
-
-	ok, err := confirmOverwrite(profile)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-
-	cfg := cli.CLIConfig{
-		ServerURL: "https://api.multica.ai",
-		AppURL:    "https://multica.ai",
-	}
-	if err := cli.SaveCLIConfigForProfile(cfg, profile); err != nil {
-		return fmt.Errorf("save config: %w", err)
-	}
-
-	fmt.Fprintln(os.Stderr, "Configured for Multica Cloud (https://multica.ai).")
-	fmt.Fprintf(os.Stderr, "  server_url: %s\n", cfg.ServerURL)
-	fmt.Fprintf(os.Stderr, "  app_url:    %s\n", cfg.AppURL)
-	printConfigLocation(profile)
-
-	// Authenticate.
-	fmt.Fprintln(os.Stderr, "")
-	if err := runLogin(cmd, args); err != nil {
-		return err
-	}
-
-	fmt.Fprintln(os.Stderr, "\nStarting daemon...")
-	if err := runDaemonBackground(cmd); err != nil {
-		return fmt.Errorf("start daemon: %w", err)
-	}
-	fmt.Fprintln(os.Stderr, "\n✓ Setup complete! Your machine is now connected to Multica.")
-
-	return nil
-}
-
 func runSetupSelfHost(cmd *cobra.Command, args []string) error {
 	profile := resolveProfile(cmd)
 
@@ -176,7 +143,7 @@ func runSetupSelfHost(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	fmt.Fprintln(os.Stderr, "Configured for self-hosted server.")
+	fmt.Fprintln(os.Stderr, "Configured for local Multica.")
 	fmt.Fprintf(os.Stderr, "  server_url: %s\n", cfg.ServerURL)
 	fmt.Fprintf(os.Stderr, "  app_url:    %s\n", cfg.AppURL)
 	printConfigLocation(profile)
@@ -188,7 +155,6 @@ func runSetupSelfHost(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Authenticate.
 	fmt.Fprintln(os.Stderr, "")
 	if err := runLogin(cmd, args); err != nil {
 		return err

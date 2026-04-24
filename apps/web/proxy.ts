@@ -19,7 +19,6 @@ const LEGACY_ROUTE_SEGMENTS = new Set([
 // Next.js 16 renamed `middleware` → `proxy`. The runtime API is identical.
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const hasSession = req.cookies.has("multica_logged_in");
   const lastSlug = req.cookies.get("last_workspace_slug")?.value;
 
   // --- Legacy URL redirect: /issues/... → /{slug}/issues/... ---
@@ -29,37 +28,21 @@ export function proxy(req: NextRequest) {
   if (LEGACY_ROUTE_SEGMENTS.has(firstSegment)) {
     const url = req.nextUrl.clone();
 
-    if (!hasSession) {
-      url.pathname = "/login";
-      return NextResponse.redirect(url);
-    }
-
     if (lastSlug) {
       // Preserve deep-link path + query: /issues/abc → /{lastSlug}/issues/abc
       url.pathname = `/${lastSlug}${pathname}`;
       return NextResponse.redirect(url);
     }
 
-    // Logged-in but no cookie yet (first login since slug migration, or
-    // cookie cleared). Bounce to root; the root-path logic below picks a
-    // workspace and writes the cookie, then future hits short-circuit here.
-    url.pathname = "/";
+    url.pathname = `/personal${pathname}`;
     return NextResponse.redirect(url);
   }
 
-  // --- Root path: redirect logged-in users to their last workspace ---
+  // --- Root path: solo mode always opens the personal workspace ---
   if (pathname === "/") {
-    if (!hasSession) return NextResponse.next();
-
-    if (lastSlug) {
-      const url = req.nextUrl.clone();
-      url.pathname = `/${lastSlug}/issues`;
-      return NextResponse.redirect(url);
-    }
-
-    // No last_workspace_slug cookie → let landing page pick the first workspace
-    // client-side (features/landing/components/redirect-if-authenticated.tsx).
-    return NextResponse.next();
+    const url = req.nextUrl.clone();
+    url.pathname = `/${lastSlug || "personal"}/issues`;
+    return NextResponse.redirect(url);
   }
 
   return NextResponse.next();

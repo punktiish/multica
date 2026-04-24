@@ -4,7 +4,6 @@ import {
   readFile,
   writeFile,
   mkdir,
-  rm,
   open,
   stat,
 } from "fs/promises";
@@ -17,7 +16,7 @@ import {
 import { join } from "path";
 import { homedir } from "os";
 import type { DaemonStatus, DaemonPrefs } from "../shared/daemon-types";
-import { ensureManagedCli, managedCliPath } from "./cli-bootstrap";
+import { managedCliPath } from "./cli-bootstrap";
 import { decideVersionAction } from "./version-decision";
 
 const DEFAULT_HEALTH_PORT = 19514;
@@ -48,10 +47,8 @@ let pendingVersionRestart = false;
 let targetApiBaseUrl: string | null = null;
 let activeProfile: ActiveProfile | null = null;
 
-// Serialize all writes to any profile config file. Multiple paths
-// (syncToken, resolveActiveProfile, clearToken, watch/unwatch handlers)
-// may try to write concurrently; chaining them avoids interleaved writes
-// corrupting the JSON.
+// Serialize all writes to any profile config file. Multiple paths may try to
+// write concurrently; chaining them avoids interleaved writes corrupting JSON.
 let configWriteChain: Promise<void> = Promise.resolve();
 
 // Keep the Go impl in sync: server/cmd/multica/cmd_daemon.go healthPortForProfile.
@@ -74,40 +71,6 @@ function profileConfigPath(profile: string): string {
 
 function profileLogPath(profile: string): string {
   return join(profileDir(profile), "daemon.log");
-}
-
-// Sidecar file that records which Multica user the cached PAT in config.json
-// was minted for. The Go CLI/daemon never read or write this file, so it
-// survives Go-side config rewrites. Used to detect user switches and mint a
-// fresh PAT instead of reusing a token that belongs to a previous user.
-function profileUserIdPath(profile: string): string {
-  return join(profileDir(profile), ".desktop-user-id");
-}
-
-async function readProfileUserId(profile: string): Promise<string | null> {
-  try {
-    const raw = await readFile(profileUserIdPath(profile), "utf-8");
-    const trimmed = raw.trim();
-    return trimmed || null;
-  } catch {
-    return null;
-  }
-}
-
-async function writeProfileUserId(
-  profile: string,
-  userId: string,
-): Promise<void> {
-  await mkdir(profileDir(profile), { recursive: true });
-  await writeFile(profileUserIdPath(profile), userId, "utf-8");
-}
-
-async function removeProfileUserId(profile: string): Promise<void> {
-  try {
-    await rm(profileUserIdPath(profile));
-  } catch {
-    // Already gone — nothing to do.
-  }
 }
 
 function normalizeUrl(u: string): string {
@@ -350,16 +313,9 @@ async function resolveCliBinary(): Promise<string | null> {
       return managed;
     }
 
-    try {
-      const installed = await ensureManagedCli();
-      cachedCliBinary = installed;
-      return installed;
-    } catch (err) {
-      console.warn("[daemon] CLI auto-install failed, falling back to PATH:", err);
-      const onPath = findCliOnPath();
-      cachedCliBinary = onPath;
-      return onPath;
-    }
+    const onPath = findCliOnPath();
+    cachedCliBinary = onPath;
+    return onPath;
   })();
 
   try {
@@ -454,104 +410,6 @@ async function ensureRunningDaemonVersionMatches(): Promise<
   }
 }
 
-/**
- * Exchange the user's JWT for a long-lived PAT via POST /api/tokens. The
- * daemon needs a PAT (or `mul_` / `mdt_` token) because JWTs expire in 30
- * days and signatures are tied to a specific backend instance.
- */
-async function mintPat(jwt: string): Promise<string> {
-  if (!targetApiBaseUrl) {
-    throw new Error("mint PAT: target API URL not set");
-  }
-  const url = `${targetApiBaseUrl.replace(/\/+$/, "")}/api/tokens`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt}`,
-    },
-    // Omit expires_in_days → server treats as null → non-expiring PAT.
-    body: JSON.stringify({ name: "Multica Desktop" }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`mint PAT failed: ${res.status} ${res.statusText} ${body}`);
-  }
-  const data = (await res.json()) as { token?: unknown };
-  if (typeof data.token !== "string" || !data.token.startsWith("mul_")) {
-    throw new Error("mint PAT: response missing token");
-  }
-  return data.token;
-}
-
-/**
- * Ensure the active profile's config.json has a usable token for the daemon.
- *
- * - Input from the renderer is the user's JWT (from localStorage) plus the
- *   current user's id, so we can detect session changes.
- * - If the profile already has a cached PAT (`mul_...`) AND the sidecar user
- *   id matches the caller, reuse it — minting fresh on every launch would
- *   accumulate garbage in the user's tokens page.
- * - On user mismatch (or first run) call POST /api/tokens with the JWT to
- *   mint a fresh PAT, overwriting any stale cached PAT. This is the critical
- *   path: without it, a previous user's PAT would be used by a new session.
- * - If the caller happens to pass a PAT directly, write it through.
- * - When we mint fresh and a daemon is already running, restart it so the
- *   new credentials take effect (the Go daemon reads config at startup).
- */
-async function syncToken(
-  tokenFromRenderer: string,
-  userId: string,
-): Promise<void> {
-  const active = await ensureActiveProfile();
-  const config = await readProfileConfig(active.name);
-  const previousUserId = await readProfileUserId(active.name);
-  const userChanged = Boolean(previousUserId) && previousUserId !== userId;
-  const sameUserWithCachedPat =
-    !userChanged &&
-    previousUserId === userId &&
-    typeof config.token === "string" &&
-    config.token.startsWith("mul_");
-
-  let finalToken: string;
-  if (tokenFromRenderer.startsWith("mul_")) {
-    finalToken = tokenFromRenderer;
-  } else if (sameUserWithCachedPat) {
-    finalToken = config.token as string;
-  } else {
-    try {
-      finalToken = await mintPat(tokenFromRenderer);
-      console.log(
-        `[daemon] minted PAT for profile "${active.name}" (user_changed=${userChanged})`,
-      );
-    } catch (err) {
-      console.error("[daemon] failed to mint PAT:", err);
-      throw err;
-    }
-  }
-
-  config.token = finalToken;
-  if (targetApiBaseUrl) config.server_url = targetApiBaseUrl;
-  await writeProfileConfig(active.name, config);
-  await writeProfileUserId(active.name, userId);
-
-  // If we just rotated credentials onto a running daemon, restart it so the
-  // in-memory token in the Go process matches the new config.
-  if (userChanged) {
-    try {
-      const existing = await fetchHealthAtPort(active.port);
-      if (existing?.status === "running") {
-        console.log(
-          "[daemon] user switched — restarting daemon with new credentials",
-        );
-        void restartDaemon();
-      }
-    } catch (err) {
-      console.warn("[daemon] restart-on-user-switch failed:", err);
-    }
-  }
-}
-
 async function loadPrefs(): Promise<DaemonPrefs> {
   try {
     const raw = await readFile(PREFS_PATH, "utf-8");
@@ -566,18 +424,6 @@ async function savePrefs(prefs: DaemonPrefs): Promise<void> {
   const dir = join(homedir(), ".multica");
   await mkdir(dir, { recursive: true });
   await writeFile(PREFS_PATH, JSON.stringify(prefs, null, 2), "utf-8");
-}
-
-async function clearToken(): Promise<void> {
-  const active = await ensureActiveProfile();
-  const config = await readProfileConfig(active.name);
-  if ("token" in config) {
-    delete config.token;
-    await writeProfileConfig(active.name, config);
-  }
-  // Always drop the sidecar so a subsequent syncToken from any user is
-  // treated as a fresh mint, not a reuse of a stale cached PAT.
-  await removeProfileUserId(active.name);
 }
 
 async function withGuard<T>(fn: () => Promise<T>): Promise<T | { success: false; error: string }> {
@@ -824,11 +670,6 @@ export function setupDaemonManager(
   ipcMain.handle("daemon:stop", () => withGuard(() => stopDaemon()));
   ipcMain.handle("daemon:restart", () => withGuard(() => restartDaemon()));
   ipcMain.handle("daemon:get-status", () => fetchHealth());
-  ipcMain.handle(
-    "daemon:sync-token",
-    (_event, token: string, userId: string) => syncToken(token, userId),
-  );
-  ipcMain.handle("daemon:clear-token", () => clearToken());
   ipcMain.handle("daemon:is-cli-installed", async () => {
     const bin = await resolveCliBinary();
     return bin !== null;

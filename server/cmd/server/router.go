@@ -18,6 +18,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/solo"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -55,28 +56,23 @@ func allowedOrigins() []string {
 // NewRouter creates the fully-configured Chi router with all middleware and routes.
 func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Router {
 	queries := db.New(pool)
+	identity, err := solo.Ensure(context.Background(), pool)
+	if err != nil {
+		panic(err)
+	}
 	emailSvc := service.NewEmailService()
 
-	// Initialize storage with S3 as primary, fallback to local
 	var store storage.Storage
-	s3 := storage.NewS3StorageFromEnv()
-	if s3 != nil {
-		store = s3
-	} else {
-		local := storage.NewLocalStorageFromEnv()
-		if local != nil {
-			store = local
-		}
+	if local := storage.NewLocalStorageFromEnv(); local != nil {
+		store = local
 	}
 
-	cfSigner := auth.NewCloudFrontSignerFromEnv()
-	
 	signupConfig := handler.Config{
 		AllowSignup:         os.Getenv("ALLOW_SIGNUP") != "false",
 		AllowedEmails:       splitAndTrim(os.Getenv("ALLOWED_EMAILS")),
 		AllowedEmailDomains: splitAndTrim(os.Getenv("ALLOWED_EMAIL_DOMAINS")),
 	}
-	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, signupConfig)
+	h := handler.New(queries, pool, hub, bus, emailSvc, store, signupConfig)
 
 	r := chi.NewRouter()
 
@@ -114,7 +110,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		}
 		return util.UUIDToString(ws.ID), nil
 	})
-	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+	r.With(middleware.LocalUser(identity.UserID)).Get("/ws", func(w http.ResponseWriter, r *http.Request) {
 		realtime.HandleWebSocket(hub, mc, pr, slugResolver, w, r)
 	})
 
@@ -126,15 +122,9 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		})
 	}
 
-	// Auth (public)
-	r.Post("/auth/send-code", h.SendCode)
-	r.Post("/auth/verify-code", h.VerifyCode)
-	r.Post("/auth/google", h.GoogleLogin)
-	r.Post("/auth/logout", h.Logout)
-
 	// Daemon API routes (require daemon token or valid user token)
 	r.Route("/api/daemon", func(r chi.Router) {
-		r.Use(middleware.DaemonAuth(queries))
+		r.Use(middleware.LocalUser(identity.UserID))
 
 		r.Post("/register", h.DaemonRegister)
 		r.Post("/deregister", h.DaemonDeregister)
@@ -161,8 +151,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 
 	// Protected API routes
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.Auth(queries))
-		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
+		r.Use(middleware.LocalUser(identity.UserID))
 
 		// --- User-scoped routes (no workspace context required) ---
 		r.Get("/api/config", h.GetConfig)
@@ -180,36 +169,14 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Use(middleware.RequireWorkspaceMemberFromURL(queries, "id"))
 					r.Get("/", h.GetWorkspace)
 					r.Get("/members", h.ListMembersWithUser)
-					r.Post("/leave", h.LeaveWorkspace)
-					r.Get("/invitations", h.ListWorkspaceInvitations)
 				})
 				// Admin-level access
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
 					r.Put("/", h.UpdateWorkspace)
 					r.Patch("/", h.UpdateWorkspace)
-					r.Post("/members", h.CreateInvitation)
-					r.Route("/members/{memberId}", func(r chi.Router) {
-						r.Patch("/", h.UpdateMember)
-						r.Delete("/", h.DeleteMember)
-					})
-					r.Delete("/invitations/{invitationId}", h.RevokeInvitation)
 				})
-				// Owner-only access
-				r.With(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner")).Delete("/", h.DeleteWorkspace)
 			})
-		})
-
-		// User-scoped invitation routes (no workspace context required)
-		r.Get("/api/invitations", h.ListMyInvitations)
-		r.Get("/api/invitations/{id}", h.GetMyInvitation)
-		r.Post("/api/invitations/{id}/accept", h.AcceptInvitation)
-		r.Post("/api/invitations/{id}/decline", h.DeclineInvitation)
-
-		r.Route("/api/tokens", func(r chi.Router) {
-			r.Get("/", h.ListPersonalAccessTokens)
-			r.Post("/", h.CreatePersonalAccessToken)
-			r.Delete("/{id}", h.RevokePersonalAccessToken)
 		})
 
 		// --- Workspace-scoped routes (all require workspace membership) ---

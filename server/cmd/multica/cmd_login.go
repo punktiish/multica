@@ -36,7 +36,6 @@ var loginCmd = &cobra.Command{
 }
 
 func init() {
-	loginCmd.Flags().Bool("token", false, "Authenticate by pasting a personal access token")
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
@@ -59,9 +58,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 func autoWatchWorkspaces(cmd *cobra.Command) error {
 	serverURL := resolveServerURL(cmd)
 	token := resolveToken(cmd)
-	if token == "" {
-		return fmt.Errorf("not authenticated")
-	}
 
 	client := cli.NewAPIClient(serverURL, "", token)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -110,33 +106,15 @@ func autoWatchWorkspaces(cmd *cobra.Command) error {
 	return nil
 }
 
-// waitForWorkspaceCreation opens the web workspace-creation page and polls
-// until the user creates a workspace, returning the new workspace list.
+// waitForWorkspaceCreation polls briefly for the local bootstrap workspace.
 func waitForWorkspaceCreation(cmd *cobra.Command, client *cli.APIClient) ([]struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }, error) {
-	appURL := tryResolveAppURL(cmd)
-	if appURL == "" {
-		// No app URL available (e.g. token login without prior setup).
-		// Can't open the browser — tell the user to create a workspace manually.
-		fmt.Fprintln(os.Stderr, "\nNo workspaces found.")
-		fmt.Fprintln(os.Stderr, "Create a workspace in the web dashboard, then run 'multica login' again.")
-		return nil, nil
-	}
+	fmt.Fprintln(os.Stderr, "\nNo workspace found yet. Waiting for local bootstrap...")
 
-	createWorkspaceURL := appURL + "/workspaces/new"
-
-	fmt.Fprintln(os.Stderr, "\nNo workspaces found. Opening workspace creation in your browser...")
-	if err := openBrowser(createWorkspaceURL); err != nil {
-		fmt.Fprintf(os.Stderr, "Could not open browser automatically.\n")
-	}
-	fmt.Fprintf(os.Stderr, "If the browser didn't open, visit:\n  %s\n", createWorkspaceURL)
-	fmt.Fprintln(os.Stderr, "\nWaiting for workspace creation...")
-
-	// Poll until a workspace appears or timeout (5 minutes).
 	const pollInterval = 2 * time.Second
-	const pollTimeout = 5 * time.Minute
+	const pollTimeout = 30 * time.Second
 	deadline := time.Now().Add(pollTimeout)
 
 	for time.Now().Before(deadline) {

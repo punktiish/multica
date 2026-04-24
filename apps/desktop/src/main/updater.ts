@@ -4,9 +4,6 @@ import { app, BrowserWindow, ipcMain } from "electron";
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 
-const STARTUP_CHECK_DELAY_MS = 5_000;
-const PERIODIC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-
 export type ManualUpdateCheckResult =
   | {
       ok: true;
@@ -73,18 +70,6 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
     }
   });
 
-  // Initial check shortly after startup so we don't block boot.
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.error("Failed to check for updates:", err);
-    });
-  }, STARTUP_CHECK_DELAY_MS);
-
-  // Background poll so long-running sessions still pick up new releases
-  // without requiring the user to restart the app.
-  setInterval(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.error("Periodic update check failed:", err);
-    });
-  }, PERIODIC_CHECK_INTERVAL_MS);
+  // Solo local mode is offline by default. Updates are checked only when the
+  // user explicitly presses the manual update button.
 }

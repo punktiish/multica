@@ -1,10 +1,7 @@
 export type MemberRole = "owner" | "admin" | "member";
 
-export type RepoType = "remote" | "local";
-
 export interface WorkspaceRepo {
-  type: RepoType;
-  url: string;
+  path: string;
   description: string;
 }
 

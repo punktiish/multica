@@ -193,26 +193,30 @@ install_cli() {
   fi
 }
 
-# ---------------------------------------------------------------------------
-# Docker check
-# ---------------------------------------------------------------------------
-check_docker() {
-  if ! command_exists docker; then
+# --------------------------------------------------------------------------
+# Container runtime check (Docker or Podman)
+# --------------------------------------------------------------------------
+check_runtime() {
+  if command_exists podman && podman info >/dev/null 2>&1; then
+    COMPOSE="podman compose"
+    ok "Podman is available"
+  elif command_exists docker && docker info >/dev/null 2>&1; then
+    COMPOSE="docker compose"
+    ok "Docker is available"
+  else
     printf "\n"
-    fail "Docker is not installed. Multica self-hosting requires Docker and Docker Compose.
+    fail "Neither Podman nor Docker is available. Multica self-hosting requires one of them.
 
-Install Docker:
+Install Podman (recommended):
+  macOS:  brew install podman && podman machine init && podman machine start
+  Linux:  https://podman.io/docs/installation
+
+Or install Docker:
   macOS:  https://docs.docker.com/desktop/install/mac-install/
   Linux:  https://docs.docker.com/engine/install/
 
-After installing Docker, re-run this script with --with-server."
+After installing, re-run this script with --with-server."
   fi
-
-  if ! docker info >/dev/null 2>&1; then
-    fail "Docker is installed but not running. Please start Docker and re-run this script."
-  fi
-
-  ok "Docker is available"
 }
 
 # ---------------------------------------------------------------------------
@@ -259,9 +263,9 @@ setup_server() {
     ok "Using existing .env"
   fi
 
-  # Start Docker Compose
+  # Start compose stack
   info "Starting Multica services (this may take a few minutes on first run)..."
-  docker compose -f docker-compose.selfhost.yml up -d --build
+  $COMPOSE -f docker-compose.selfhost.yml up -d --build
 
   # Wait for health check
   info "Waiting for backend to be ready..."
@@ -278,7 +282,7 @@ setup_server() {
     ok "Multica server is running"
   else
     warn "Server is still starting. You can check logs with:"
-    echo "  cd $INSTALL_DIR && docker compose -f docker-compose.selfhost.yml logs"
+    echo "  cd $INSTALL_DIR && $COMPOSE -f docker-compose.selfhost.yml logs"
     echo ""
   fi
 }
@@ -320,7 +324,7 @@ run_with_server() {
   printf "\n"
 
   detect_os
-  check_docker
+  check_runtime
   setup_server
   install_cli
 
@@ -352,11 +356,19 @@ run_stop() {
   printf "\n"
   info "Stopping Multica services..."
 
+  # Detect runtime (prefer podman)
+  local compose_cmd="docker compose"
+  if command_exists podman && podman info >/dev/null 2>&1; then
+    compose_cmd="podman compose"
+  elif command_exists docker && docker info >/dev/null 2>&1; then
+    compose_cmd="docker compose"
+  fi
+
   if [ -d "$INSTALL_DIR" ]; then
     cd "$INSTALL_DIR"
     if [ -f docker-compose.selfhost.yml ]; then
-      docker compose -f docker-compose.selfhost.yml down
-      ok "Docker services stopped"
+      $compose_cmd -f docker-compose.selfhost.yml down
+      ok "Container services stopped"
     else
       warn "No docker-compose.selfhost.yml found at $INSTALL_DIR"
     fi

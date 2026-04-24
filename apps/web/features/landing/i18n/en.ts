@@ -95,12 +95,12 @@ export const en: LandingDict = {
       label: "RUNTIMES",
       title: "One dashboard for all your compute",
       description:
-        "Local daemons and cloud runtimes, managed from a single panel. Real-time monitoring of online/offline status, usage charts, and activity heatmaps. Auto-detects local CLIs \u2014 plug in and go.",
+        "Local daemons managed from a single panel. Real-time monitoring of online/offline status, usage charts, and activity heatmaps. Auto-detects local CLIs \u2014 plug in and go.",
       cards: [
         {
           title: "Unified runtime panel",
           description:
-            "Local daemons and cloud runtimes in one view. No context switching between different management interfaces.",
+            "Local daemons in one view. No context switching between different management interfaces.",
         },
         {
           title: "Real-time monitoring",
@@ -188,9 +188,9 @@ export const en: LandingDict = {
           "Multica currently supports Claude Code, Codex, OpenClaw, and OpenCode out of the box. The daemon auto-detects whichever CLIs you have installed. Since it\u2019s open source, you can also add your own backends.",
       },
       {
-        question: "Do I need to self-host, or is there a cloud version?",
+        question: "Do I need a hosted service?",
         answer:
-          "Both. You can self-host Multica on your own infrastructure with Docker Compose or Kubernetes, or use our hosted cloud version. Your data, your choice.",
+          "No. Multica is built for solo local use: run it on your own machine and point it at local repositories.",
       },
       {
         question:
@@ -206,7 +206,7 @@ export const en: LandingDict = {
       {
         question: "Is my code safe? Where does agent execution happen?",
         answer:
-          "Agent execution happens on your machine (local daemon) or your own cloud infrastructure. Code never passes through Multica servers. The platform only coordinates task state and broadcasts events.",
+          "Agent execution happens on your machine through the local daemon. Code stays in your local repositories; Multica only coordinates task state and broadcasts events.",
       },
       {
         question: "How many agents can I run?",
@@ -341,14 +341,14 @@ export const en: LandingDict = {
           "Workspace usage correctly bucketed by task completion time",
           "Autopilot run history rows fully clickable",
           "Workspace isolation enforced on additional daemon and GC endpoints (security)",
-          "HTML-escape workspace and inviter names in invitation emails",
+          "HTML-escape workspace names in generated emails",
           "Dev and production desktop instances can now coexist",
         ],
       },
       {
         version: "0.2.0",
         date: "2026-04-15",
-        title: "Desktop App, Autopilot & Invitations",
+        title: "Desktop App, Autopilot & Local Workspaces",
         changes: [],
         features: [
           "Desktop app for macOS — native Electron app with tab system, built-in daemon management, immersive mode, and auto-update",

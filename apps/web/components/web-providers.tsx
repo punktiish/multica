@@ -18,7 +18,6 @@ export function WebProviders({ children }: { children: React.ReactNode }) {
     <CoreProvider
       apiBaseUrl={process.env.NEXT_PUBLIC_API_URL}
       wsUrl={deriveWsUrl()}
-      cookieAuth
     >
       <WebNavigationProvider>{children}</WebNavigationProvider>
     </CoreProvider>

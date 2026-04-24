@@ -21,31 +21,20 @@ let chatStore: ReturnType<typeof createChatStore>;
 function initCore(
   apiBaseUrl: string,
   storage: StorageAdapter,
-  onLogin?: () => void,
-  onLogout?: () => void,
-  cookieAuth?: boolean,
 ) {
   if (initialized) return;
 
   const api = new ApiClient(apiBaseUrl, {
     logger: createLogger("api"),
-    onUnauthorized: () => {
-      storage.removeItem("multica_token");
-    },
   });
   setApiInstance(api);
 
-  // In token mode, hydrate token from storage.
-  if (!cookieAuth) {
-    const token = storage.getItem("multica_token");
-    if (token) api.setToken(token);
-  }
   // Workspace identity is URL-driven: the [workspaceSlug] layout resolves
   // the slug and calls setCurrentWorkspace(slug, wsId) on mount. The api
   // client reads the slug from that singleton for the X-Workspace-Slug
   // header. No boot-time hydration from storage is required.
 
-  authStore = createAuthStore({ api, storage, onLogin, onLogout, cookieAuth });
+  authStore = createAuthStore({ api });
   registerAuthStore(authStore);
 
   chatStore = createChatStore({ storage });
@@ -59,23 +48,18 @@ export function CoreProvider({
   apiBaseUrl = "",
   wsUrl = "ws://localhost:8080/ws",
   storage = defaultStorage,
-  cookieAuth,
-  onLogin,
-  onLogout,
 }: CoreProviderProps) {
   // Initialize singletons on first render only. Dependencies are read-once:
   // apiBaseUrl, storage, and callbacks are set at app boot and never change at runtime.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useMemo(() => initCore(apiBaseUrl, storage, onLogin, onLogout, cookieAuth), []);
+  useMemo(() => initCore(apiBaseUrl, storage), []);
 
   return (
     <QueryProvider>
-      <AuthInitializer onLogin={onLogin} onLogout={onLogout} storage={storage} cookieAuth={cookieAuth}>
+      <AuthInitializer>
         <WSProvider
           wsUrl={wsUrl}
           authStore={authStore}
-          storage={storage}
-          cookieAuth={cookieAuth}
         >
           {children}
         </WSProvider>

@@ -15,30 +15,25 @@ import (
 
 // APIClient is a REST client for the Multica server API.
 // Used by ctrl subcommands (agent, runtime, status, etc.). Requests
-// automatically include auth and execution context headers when configured.
+// automatically include workspace and execution context headers when configured.
 type APIClient struct {
 	BaseURL     string
 	WorkspaceID string
-	Token       string
 	AgentID     string // When set, requests are attributed to this agent instead of the user.
 	TaskID      string // When set, sent as X-Task-ID for agent-task validation.
 	HTTPClient  *http.Client
 }
 
 // NewAPIClient creates a new API client for ctrl commands.
-func NewAPIClient(baseURL, workspaceID, token string) *APIClient {
+func NewAPIClient(baseURL, workspaceID string) *APIClient {
 	return &APIClient{
 		BaseURL:     strings.TrimRight(baseURL, "/"),
 		WorkspaceID: workspaceID,
-		Token:       token,
 		HTTPClient:  &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
 func (c *APIClient) setHeaders(req *http.Request) {
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
 	if c.WorkspaceID != "" {
 		req.Header.Set("X-Workspace-ID", c.WorkspaceID)
 	}

@@ -49,9 +49,8 @@ func init() {
 
 func runWorkspaceList(cmd *cobra.Command, _ []string) error {
 	serverURL := resolveServerURL(cmd)
-	token := resolveToken(cmd)
 
-	client := cli.NewAPIClient(serverURL, "", token)
+	client := cli.NewAPIClient(serverURL, "")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 

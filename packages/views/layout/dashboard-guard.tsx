@@ -5,14 +5,14 @@ import { useDashboardGuard } from "./use-dashboard-guard";
 
 interface DashboardGuardProps {
   children: ReactNode;
-  /** Rendered when auth or workspace is loading */
+  /** Rendered when local user or workspace is loading */
   loadingFallback?: ReactNode;
 }
 
 /**
  * Shared guard for dashboard layouts.
  *
- * Handles: auth check → workspace check → render children.
+ * Handles: local user bootstrap → workspace check → render children.
  * Both web and desktop layouts compose their own UI structure inside this.
  *
  * WorkspaceIdProvider has been removed — useWorkspaceId() now derives from

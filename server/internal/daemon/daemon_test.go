@@ -169,6 +169,15 @@ func TestIsWorkspaceNotFoundError(t *testing.T) {
 	}
 }
 
+func TestResolveAuthDoesNotRequireStoredToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	d := New(Config{ServerBaseURL: "http://localhost:8080"}, slog.Default())
+	if err := d.resolveAuth(); err != nil {
+		t.Fatalf("resolveAuth should not require a stored token in solo local mode: %v", err)
+	}
+}
+
 func TestMergeUsage(t *testing.T) {
 	t.Parallel()
 

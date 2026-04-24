@@ -34,7 +34,6 @@ describe("sanitizeTabPath", () => {
   it("silently rejects transition paths (no warn — navigation adapter intercepts them)", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(sanitizeTabPath("/workspaces/new")).toBeNull();
-    expect(sanitizeTabPath("/invite/abc")).toBeNull();
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -82,7 +81,6 @@ describe("migrateV1ToV2", () => {
       tabs: [
         { id: "t1", path: "/", title: "Issues", icon: "ListTodo" },
         { id: "t2", path: "/workspaces/new", title: "New", icon: "Plus" },
-        { id: "t3", path: "/invite/abc", title: "Invite", icon: "Mail" },
         { id: "t4", path: "/acme/issues", title: "Issues", icon: "ListTodo" },
       ],
       activeTabId: "t1",

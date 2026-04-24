@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/realtime"
-	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -53,8 +52,7 @@ func TestMain(m *testing.M) {
 	hub := realtime.NewHub()
 	go hub.Run()
 	bus := events.New()
-	emailSvc := service.NewEmailService()
-	testHandler = New(queries, pool, hub, bus, emailSvc, nil, Config{AllowSignup: true})
+	testHandler = New(queries, pool, hub, bus, nil)
 	testPool = pool
 
 	testUserID, testWorkspaceID, err = setupHandlerTestFixture(ctx, pool)
@@ -110,7 +108,7 @@ func setupHandlerTestFixture(ctx context.Context, pool *pgxpool.Pool) (string, s
 		INSERT INTO agent_runtime (
 			workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at
 		)
-		VALUES ($1, NULL, $2, 'cloud', $3, 'online', $4, '{}'::jsonb, now())
+		VALUES ($1, NULL, $2, 'local', $3, 'online', $4, '{}'::jsonb, now())
 		RETURNING id
 	`, workspaceID, "Handler Test Runtime", "handler_test_runtime", "Handler test runtime").Scan(&runtimeID); err != nil {
 		return "", "", err
@@ -122,7 +120,7 @@ func setupHandlerTestFixture(ctx context.Context, pool *pgxpool.Pool) (string, s
 			workspace_id, name, description, runtime_mode, runtime_config,
 			runtime_id, visibility, max_concurrent_tasks, owner_id
 		)
-		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'workspace', 1, $4)
+		VALUES ($1, $2, '', 'local', '{}'::jsonb, $3, 'workspace', 1, $4)
 	`, workspaceID, "Handler Test Agent", runtimeID, userID); err != nil {
 		return "", "", err
 	}
@@ -182,7 +180,7 @@ func createHandlerTestAgent(t *testing.T, name string, mcpConfig []byte) string 
 			runtime_id, visibility, max_concurrent_tasks, owner_id,
 			instructions, custom_env, custom_args, mcp_config
 		)
-		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'private', 1, $4, '', '{}'::jsonb, '[]'::jsonb, $5)
+		VALUES ($1, $2, '', 'local', '{}'::jsonb, $3, 'private', 1, $4, '', '{}'::jsonb, '[]'::jsonb, $5)
 		RETURNING id
 	`, testWorkspaceID, name, handlerTestRuntimeID(t), testUserID, mcpConfig).Scan(&agentID); err != nil {
 		t.Fatalf("failed to create handler test agent: %v", err)
@@ -795,275 +793,6 @@ func TestCreateWorkspaceInvalidSlugReturnsBadRequest(t *testing.T) {
 	testHandler.CreateWorkspace(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("CreateWorkspace: expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestSendCode(t *testing.T) {
-	w := httptest.NewRecorder()
-	body := map[string]string{"email": "sendcode-test@multica.ai"}
-	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(body)
-	req := httptest.NewRequest("POST", "/auth/send-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.SendCode(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SendCode: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp map[string]string
-	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["message"] == "" {
-		t.Fatal("SendCode: expected non-empty message")
-	}
-
-	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM verification_code WHERE email = $1`, "sendcode-test@multica.ai")
-	})
-}
-
-func TestSendCodeDbError(t *testing.T) {
-	// We can't easily mock the DB here without changing architecture,
-	// but we can simulate a DB error by closing the pool temporarily or
-	// using a cancelled context if the query respects it.
-
-	// Create a handler with a "broken" queries object is hard because it's a struct.
-	// Instead, let's use a context that is already cancelled.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	w := httptest.NewRecorder()
-	body := map[string]string{"email": "dberror-test@multica.ai"}
-	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(body)
-	req := httptest.NewRequest("POST", "/auth/send-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(ctx)
-
-	testHandler.SendCode(w, req)
-
-	// If the DB query respects the cancelled context, it should return an error.
-	// pgx usually returns context.Canceled which is not what isNotFound checks for.
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("SendCode (db error): expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp map[string]string
-	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["error"] != "failed to lookup user" {
-		t.Fatalf("SendCode (db error): expected error message 'failed to lookup user', got '%s'", resp["error"])
-	}
-}
-
-func TestSendCodeRateLimit(t *testing.T) {
-	const email = "ratelimit-test@multica.ai"
-	t.Cleanup(func() {
-		testPool.Exec(context.Background(), `DELETE FROM verification_code WHERE email = $1`, email)
-	})
-
-	// First request should succeed
-	w := httptest.NewRecorder()
-	body := map[string]string{"email": email}
-	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(body)
-	req := httptest.NewRequest("POST", "/auth/send-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.SendCode(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SendCode (first): expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Second request within 60s should be rate limited
-	w = httptest.NewRecorder()
-	buf.Reset()
-	json.NewEncoder(&buf).Encode(body)
-	req = httptest.NewRequest("POST", "/auth/send-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.SendCode(w, req)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("SendCode (second): expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestVerifyCode(t *testing.T) {
-	const email = "verify-test@multica.ai"
-	ctx := context.Background()
-
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
-		user, err := testHandler.Queries.GetUserByEmail(ctx, email)
-		if err == nil {
-			workspaces, listErr := testHandler.Queries.ListWorkspaces(ctx, user.ID)
-			if listErr == nil {
-				for _, workspace := range workspaces {
-					_ = testHandler.Queries.DeleteWorkspace(ctx, workspace.ID)
-				}
-			}
-		}
-		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
-	})
-
-	// Send code first
-	w := httptest.NewRecorder()
-	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(map[string]string{"email": email})
-	req := httptest.NewRequest("POST", "/auth/send-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.SendCode(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SendCode: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Read code from DB
-	dbCode, err := testHandler.Queries.GetLatestVerificationCode(ctx, email)
-	if err != nil {
-		t.Fatalf("GetLatestVerificationCode: %v", err)
-	}
-
-	// Verify with correct code
-	w = httptest.NewRecorder()
-	buf.Reset()
-	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": dbCode.Code})
-	req = httptest.NewRequest("POST", "/auth/verify-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.VerifyCode(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("VerifyCode: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp LoginResponse
-	json.NewDecoder(w.Body).Decode(&resp)
-	if resp.Token == "" {
-		t.Fatal("VerifyCode: expected non-empty token")
-	}
-	if resp.User.Email != email {
-		t.Fatalf("VerifyCode: expected email '%s', got '%s'", email, resp.User.Email)
-	}
-}
-
-func TestVerifyCodeWrongCode(t *testing.T) {
-	const email = "wrong-code-test@multica.ai"
-	ctx := context.Background()
-
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
-	})
-
-	// Send code
-	w := httptest.NewRecorder()
-	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(map[string]string{"email": email})
-	req := httptest.NewRequest("POST", "/auth/send-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.SendCode(w, req)
-
-	// Verify with wrong code
-	w = httptest.NewRecorder()
-	buf.Reset()
-	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": "000000"})
-	req = httptest.NewRequest("POST", "/auth/verify-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.VerifyCode(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("VerifyCode (wrong code): expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestVerifyCodeBruteForceProtection(t *testing.T) {
-	const email = "bruteforce-test@multica.ai"
-	ctx := context.Background()
-
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
-	})
-
-	// Send code
-	w := httptest.NewRecorder()
-	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(map[string]string{"email": email})
-	req := httptest.NewRequest("POST", "/auth/send-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.SendCode(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("SendCode: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Read actual code so we can try it after lockout
-	dbCode, err := testHandler.Queries.GetLatestVerificationCode(ctx, email)
-	if err != nil {
-		t.Fatalf("GetLatestVerificationCode: %v", err)
-	}
-
-	// Exhaust all 5 attempts with wrong codes
-	for i := 0; i < 5; i++ {
-		w = httptest.NewRecorder()
-		buf.Reset()
-		json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": "000000"})
-		req = httptest.NewRequest("POST", "/auth/verify-code", &buf)
-		req.Header.Set("Content-Type", "application/json")
-		testHandler.VerifyCode(w, req)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("attempt %d: expected 400, got %d", i+1, w.Code)
-		}
-	}
-
-	// Now even the correct code should be rejected (code is locked out)
-	w = httptest.NewRecorder()
-	buf.Reset()
-	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": dbCode.Code})
-	req = httptest.NewRequest("POST", "/auth/verify-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.VerifyCode(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("after lockout: expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestVerifyCodeNewUserHasNoWorkspace(t *testing.T) {
-	const email = "workspace-verify-test@multica.ai"
-	ctx := context.Background()
-
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
-		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
-	})
-
-	// Send code
-	w := httptest.NewRecorder()
-	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(map[string]string{"email": email})
-	req := httptest.NewRequest("POST", "/auth/send-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.SendCode(w, req)
-
-	// Read code from DB
-	dbCode, err := testHandler.Queries.GetLatestVerificationCode(ctx, email)
-	if err != nil {
-		t.Fatalf("GetLatestVerificationCode: %v", err)
-	}
-
-	// Verify
-	w = httptest.NewRecorder()
-	buf.Reset()
-	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": dbCode.Code})
-	req = httptest.NewRequest("POST", "/auth/verify-code", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	testHandler.VerifyCode(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("VerifyCode: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	user, err := testHandler.Queries.GetUserByEmail(ctx, email)
-	if err != nil {
-		t.Fatalf("GetUserByEmail: %v", err)
-	}
-
-	// New users should have no workspaces (/workspaces/new creates one)
-	workspaces, err := testHandler.Queries.ListWorkspaces(ctx, user.ID)
-	if err != nil {
-		t.Fatalf("ListWorkspaces: %v", err)
-	}
-	if len(workspaces) != 0 {
-		t.Fatalf("ListWorkspaces: expected 0 workspaces for new user, got %d", len(workspaces))
 	}
 }
 

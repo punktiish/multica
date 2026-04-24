@@ -1,9 +1,8 @@
 "use client";
 
-import { ArrowLeft, LogOut } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import type { Workspace } from "@multica/core/types";
-import { useLogout } from "../auth";
 import { CreateWorkspaceForm } from "./create-workspace-form";
 
 /**
@@ -26,8 +25,6 @@ export function NewWorkspacePage({
   onSuccess: (workspace: Workspace) => void;
   onBack?: () => void;
 }) {
-  const logout = useLogout();
-
   return (
     <div className="relative flex min-h-svh flex-col bg-background px-6 py-12">
       {onBack && (
@@ -41,16 +38,6 @@ export function NewWorkspacePage({
           Back
         </Button>
       )}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="absolute top-12 right-12 text-muted-foreground hover:text-destructive"
-        onClick={logout}
-      >
-        <LogOut />
-        Log out
-      </Button>
-
       <div className="flex flex-1 flex-col items-center justify-center">
         <div className="flex w-full max-w-md flex-col items-center gap-6">
           <div className="text-center">

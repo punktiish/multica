@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import { Outlet, useNavigate, useParams } from "react-router-dom";
+import { Outlet, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { WorkspaceSlugProvider, paths } from "@multica/core/paths";
+import { WorkspaceSlugProvider } from "@multica/core/paths";
 import {
   workspaceBySlugOptions,
   workspaceListOptions,
@@ -30,14 +30,8 @@ import { useTabStore } from "@/stores/tab-store";
  */
 export function WorkspaceRouteLayout() {
   const { workspaceSlug } = useParams<{ workspaceSlug: string }>();
-  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const isAuthLoading = useAuthStore((s) => s.isLoading);
-
-  // Workspace routes require auth. If user is unauthenticated, bounce to /login.
-  useEffect(() => {
-    if (!isAuthLoading && !user) navigate(paths.login(), { replace: true });
-  }, [isAuthLoading, user, navigate]);
 
   const { data: workspace, isFetched: listFetched } = useQuery({
     ...workspaceBySlugOptions(workspaceSlug ?? ""),

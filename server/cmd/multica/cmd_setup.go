@@ -16,7 +16,7 @@ import (
 
 var setupCmd = &cobra.Command{
 	Use:   "setup",
-	Short: "Configure the CLI, authenticate, and start the daemon",
+	Short: "Configure the CLI and start the daemon",
 	Long: `Configures the CLI to connect to the local Multica server, then
 starts the agent daemon.
 
@@ -25,13 +25,6 @@ If a configuration already exists, you will be prompted before overwriting.
 Use --profile to create an isolated configuration for a separate environment:
   multica setup --profile dev --server-url http://localhost:8080`,
 	RunE: runSetupSelfHost,
-}
-
-var setupCloudCmd = &cobra.Command{
-	Use:   "cloud",
-	Short: "Deprecated alias for local setup",
-	Long:  "Cloud setup is disabled in solo local mode. This command configures the local server instead.",
-	RunE:  runSetupSelfHost,
 }
 
 var setupSelfHostCmd = &cobra.Command{
@@ -55,17 +48,11 @@ func init() {
 	setupCmd.Flags().Int("port", 8080, "Backend server port (used when --server-url is not set)")
 	setupCmd.Flags().Int("frontend-port", 3000, "Frontend port (used when --app-url is not set)")
 
-	setupCloudCmd.Flags().String("server-url", "", "Backend server URL (default http://localhost:8080)")
-	setupCloudCmd.Flags().String("app-url", "", "Frontend app URL (default http://localhost:3000)")
-	setupCloudCmd.Flags().Int("port", 8080, "Backend server port (used when --server-url is not set)")
-	setupCloudCmd.Flags().Int("frontend-port", 3000, "Frontend port (used when --app-url is not set)")
-
 	setupSelfHostCmd.Flags().String("server-url", "", "Backend server URL (e.g. https://api.internal.co)")
 	setupSelfHostCmd.Flags().String("app-url", "", "Frontend app URL (e.g. https://app.internal.co)")
 	setupSelfHostCmd.Flags().Int("port", 8080, "Backend server port (used when --server-url is not set)")
 	setupSelfHostCmd.Flags().Int("frontend-port", 3000, "Frontend port (used when --app-url is not set)")
 
-	setupCmd.AddCommand(setupCloudCmd)
 	setupCmd.AddCommand(setupSelfHostCmd)
 }
 
@@ -151,13 +138,14 @@ func runSetupSelfHost(cmd *cobra.Command, args []string) error {
 	// Check if the server is reachable.
 	if !probeServer(serverURL) {
 		fmt.Fprintf(os.Stderr, "\n⚠ Server at %s is not reachable.\n", serverURL)
-		fmt.Fprintln(os.Stderr, "  Make sure the server is running, then run 'multica login'.")
+		fmt.Fprintln(os.Stderr, "  Make sure the server is running, then run 'multica setup'.")
 		return nil
 	}
 
 	fmt.Fprintln(os.Stderr, "")
-	if err := runLogin(cmd, args); err != nil {
-		return err
+	if err := autoWatchWorkspaces(cmd); err != nil {
+		fmt.Fprintf(os.Stderr, "\nCould not auto-configure workspaces: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Run 'multica workspace list' and 'multica workspace watch <id>' to set up manually.\n")
 	}
 
 	fmt.Fprintln(os.Stderr, "\nStarting daemon...")
@@ -186,4 +174,86 @@ func probeServer(baseURL string) bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+func autoWatchWorkspaces(cmd *cobra.Command) error {
+	serverURL := resolveServerURL(cmd)
+
+	client := cli.NewAPIClient(serverURL, "")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var workspaces []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := client.GetJSON(ctx, "/api/workspaces", &workspaces); err != nil {
+		return fmt.Errorf("list workspaces: %w", err)
+	}
+
+	if len(workspaces) == 0 {
+		var err error
+		workspaces, err = waitForWorkspaceCreation(client)
+		if err != nil {
+			return err
+		}
+		if len(workspaces) == 0 {
+			fmt.Fprintln(os.Stderr, "\nNo workspaces found.")
+			return nil
+		}
+	}
+
+	profile := resolveProfile(cmd)
+	cfg, err := cli.LoadCLIConfigForProfile(profile)
+	if err != nil {
+		return err
+	}
+
+	if cfg.WorkspaceID == "" {
+		cfg.WorkspaceID = workspaces[0].ID
+	}
+
+	if err := cli.SaveCLIConfigForProfile(cfg, profile); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "\nFound %d workspace(s):\n", len(workspaces))
+	for _, ws := range workspaces {
+		fmt.Fprintf(os.Stderr, "  • %s (%s)\n", ws.Name, ws.ID)
+	}
+
+	return nil
+}
+
+// waitForWorkspaceCreation polls briefly for the local bootstrap workspace.
+func waitForWorkspaceCreation(client *cli.APIClient) ([]struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}, error) {
+	fmt.Fprintln(os.Stderr, "\nNo workspace found yet. Waiting for local bootstrap...")
+
+	const pollInterval = 2 * time.Second
+	const pollTimeout = 30 * time.Second
+	deadline := time.Now().Add(pollTimeout)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		var workspaces []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+		err := client.GetJSON(ctx, "/api/workspaces", &workspaces)
+		cancel()
+
+		if err != nil {
+			continue
+		}
+		if len(workspaces) > 0 {
+			return workspaces, nil
+		}
+	}
+
+	return nil, fmt.Errorf("timed out waiting for workspace creation")
 }

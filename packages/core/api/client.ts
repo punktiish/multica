@@ -6,8 +6,6 @@ import type {
   SearchIssuesResponse,
   SearchProjectsResponse,
   UpdateMeRequest,
-  CreateMemberRequest,
-  UpdateMemberRequest,
   ListIssuesParams,
   Agent,
   CreateAgentRequest,
@@ -27,9 +25,6 @@ import type {
   CreateSkillRequest,
   UpdateSkillRequest,
   SetAgentSkillsRequest,
-  PersonalAccessToken,
-  CreatePersonalAccessTokenRequest,
-  CreatePersonalAccessTokenResponse,
   RuntimeUsage,
   IssueUsageSummary,
   RuntimeHourlyActivity,
@@ -53,7 +48,6 @@ import type {
   CreatePinRequest,
   PinnedItemType,
   ReorderPinsRequest,
-  Invitation,
   Autopilot,
   AutopilotTrigger,
   AutopilotRun,
@@ -71,12 +65,6 @@ import { getCurrentSlug } from "../platform/workspace-storage";
 
 export interface ApiClientOptions {
   logger?: Logger;
-  onUnauthorized?: () => void;
-}
-
-export interface LoginResponse {
-  token: string;
-  user: User;
 }
 
 export class ApiError extends Error {
@@ -93,13 +81,10 @@ export class ApiError extends Error {
 
 export class ApiClient {
   private baseUrl: string;
-  private token: string | null = null;
   private logger: Logger;
-  private options: ApiClientOptions;
 
   constructor(baseUrl: string, options?: ApiClientOptions) {
     this.baseUrl = baseUrl;
-    this.options = options ?? {};
     this.logger = options?.logger ?? noopLogger;
   }
 
@@ -107,35 +92,16 @@ export class ApiClient {
     return this.baseUrl;
   }
 
-  setToken(token: string | null) {
-    this.token = token;
-  }
-
-  private readCsrfToken(): string | null {
-    if (typeof document === "undefined") return null;
-    const match = document.cookie
-      .split("; ")
-      .find((c) => c.startsWith("multica_csrf="));
-    return match ? match.split("=")[1] ?? null : null;
-  }
-
   private authHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
-    if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
     const slug = getCurrentSlug();
     if (slug) headers["X-Workspace-Slug"] = slug;
-    const csrf = this.readCsrfToken();
-    if (csrf) headers["X-CSRF-Token"] = csrf;
     return headers;
   }
 
   private handleUnauthorized() {
-    this.token = null;
-    // Workspace id is owned by the URL-driven workspace-storage singleton
-    // (set by [workspaceSlug]/layout.tsx). On 401, the auth flow navigates
-    // to /login which leaves the workspace route, and the next workspace
-    // entry will overwrite the id. No clear needed here.
-    this.options.onUnauthorized?.();
+    // Solo local mode should not produce auth failures, but callers still
+    // treat 401 as a hard API error.
   }
 
   private async parseErrorMessage(res: Response, fallback: string): Promise<string> {
@@ -184,36 +150,6 @@ export class ApiClient {
     }
 
     return res.json() as Promise<T>;
-  }
-
-  // Auth
-  async sendCode(email: string): Promise<void> {
-    await this.fetch("/auth/send-code", {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    });
-  }
-
-  async verifyCode(email: string, code: string): Promise<LoginResponse> {
-    return this.fetch("/auth/verify-code", {
-      method: "POST",
-      body: JSON.stringify({ email, code }),
-    });
-  }
-
-  async googleLogin(code: string, redirectUri: string): Promise<LoginResponse> {
-    return this.fetch("/auth/google", {
-      method: "POST",
-      body: JSON.stringify({ code, redirect_uri: redirectUri }),
-    });
-  }
-
-  async logout(): Promise<void> {
-    await this.fetch("/auth/logout", { method: "POST" });
-  }
-
-  async issueCliToken(): Promise<{ token: string }> {
-    return this.fetch("/api/cli-token", { method: "POST" });
   }
 
   async getMe(): Promise<User> {
@@ -574,63 +510,6 @@ export class ApiClient {
     return this.fetch(`/api/workspaces/${workspaceId}/members`);
   }
 
-  async createMember(workspaceId: string, data: CreateMemberRequest): Promise<Invitation> {
-    return this.fetch(`/api/workspaces/${workspaceId}/members`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async updateMember(workspaceId: string, memberId: string, data: UpdateMemberRequest): Promise<MemberWithUser> {
-    return this.fetch(`/api/workspaces/${workspaceId}/members/${memberId}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async deleteMember(workspaceId: string, memberId: string): Promise<void> {
-    await this.fetch(`/api/workspaces/${workspaceId}/members/${memberId}`, {
-      method: "DELETE",
-    });
-  }
-
-  async leaveWorkspace(workspaceId: string): Promise<void> {
-    await this.fetch(`/api/workspaces/${workspaceId}/leave`, {
-      method: "POST",
-    });
-  }
-
-  // Invitations
-  async listWorkspaceInvitations(workspaceId: string): Promise<Invitation[]> {
-    return this.fetch(`/api/workspaces/${workspaceId}/invitations`);
-  }
-
-  async revokeInvitation(workspaceId: string, invitationId: string): Promise<void> {
-    await this.fetch(`/api/workspaces/${workspaceId}/invitations/${invitationId}`, {
-      method: "DELETE",
-    });
-  }
-
-  async listMyInvitations(): Promise<Invitation[]> {
-    return this.fetch("/api/invitations");
-  }
-
-  async getInvitation(invitationId: string): Promise<Invitation> {
-    return this.fetch(`/api/invitations/${invitationId}`);
-  }
-
-  async acceptInvitation(invitationId: string): Promise<MemberWithUser> {
-    return this.fetch(`/api/invitations/${invitationId}/accept`, {
-      method: "POST",
-    });
-  }
-
-  async declineInvitation(invitationId: string): Promise<void> {
-    await this.fetch(`/api/invitations/${invitationId}/decline`, {
-      method: "POST",
-    });
-  }
-
   async deleteWorkspace(workspaceId: string): Promise<void> {
     await this.fetch(`/api/workspaces/${workspaceId}`, {
       method: "DELETE",
@@ -680,22 +559,6 @@ export class ApiClient {
       method: "PUT",
       body: JSON.stringify(data),
     });
-  }
-
-  // Personal Access Tokens
-  async listPersonalAccessTokens(): Promise<PersonalAccessToken[]> {
-    return this.fetch("/api/tokens");
-  }
-
-  async createPersonalAccessToken(data: CreatePersonalAccessTokenRequest): Promise<CreatePersonalAccessTokenResponse> {
-    return this.fetch("/api/tokens", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
-
-  async revokePersonalAccessToken(id: string): Promise<void> {
-    await this.fetch(`/api/tokens/${id}`, { method: "DELETE" });
   }
 
   // File Upload & Attachments

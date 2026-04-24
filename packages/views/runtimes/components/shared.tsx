@@ -1,12 +1,8 @@
-import { Monitor, Cloud, Wifi, WifiOff } from "lucide-react";
+import { Monitor, Wifi, WifiOff } from "lucide-react";
 import { Badge } from "@multica/ui/components/ui/badge";
 
-export function RuntimeModeIcon({ mode }: { mode: string }) {
-  return mode === "cloud" ? (
-    <Cloud className="h-3.5 w-3.5" />
-  ) : (
-    <Monitor className="h-3.5 w-3.5" />
-  );
+export function RuntimeModeIcon({ mode: _mode }: { mode: string }) {
+  return <Monitor className="h-3.5 w-3.5" />;
 }
 
 export function StatusBadge({ status }: { status: string }) {

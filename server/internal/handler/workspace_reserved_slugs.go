@@ -20,7 +20,6 @@ var reservedSlugs = map[string]bool{
 	"auth":       true,
 	"oauth":      true,
 	"callback":   true,
-	"invite":     true,
 	"verify":     true,
 	"reset":      true,
 	"password":   true,

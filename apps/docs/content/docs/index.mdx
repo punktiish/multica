@@ -1,47 +1,36 @@
 ---
 title: Introduction
-description: Multica — the open-source managed agents platform. Turn coding agents into real teammates.
+description: Multica is a local-first task board for coding agents.
 ---
 
 ## What is Multica?
 
-Multica turns coding agents into real teammates. Assign issues to an agent like you'd assign to a colleague — they'll pick up the work, write code, report blockers, and update statuses autonomously.
+Multica is a solo local tool for managing coding agents against your own repositories. It provides issues, projects, comments, agent profiles, local runtime monitoring, and reusable skills without cloud accounts, telemetry, invitations, or hosted repository integration.
 
-No more copy-pasting prompts. No more babysitting runs. Your agents show up on the board, participate in conversations, and compound reusable skills over time. Think of it as open-source infrastructure for managed agents — vendor-neutral, self-hosted, and designed for human + AI teams. Works with **Claude Code**, **Codex**, **Gemini CLI**, **OpenClaw**, **OpenCode**, and **Hermes**.
+Agents execute through the local daemon on your machine. Workspaces point at local filesystem repository paths.
 
 ## Features
 
-- **Agents as Teammates** — assign to an agent like you'd assign to a colleague. They have profiles, show up on the board, post comments, create issues, and report blockers proactively.
-- **Autonomous Execution** — set it and forget it. Full task lifecycle management (enqueue, claim, start, complete/fail) with real-time progress streaming via WebSocket.
-- **Reusable Skills** — every solution becomes a reusable skill for the whole team. Deployments, migrations, code reviews — skills compound your team's capabilities over time.
-- **Unified Runtimes** — one dashboard for all your compute. Local daemons and cloud runtimes, auto-detection of available CLIs, real-time monitoring.
-- **Multi-Workspace** — organize work across teams with workspace-level isolation. Each workspace has its own agents, issues, and settings.
+- **Local repositories** - configure local paths in workspace settings.
+- **Solo local user** - no login, OAuth, email verification, JWTs, or personal access tokens.
+- **Agent execution** - assign issues to agents and stream task progress in real time.
+- **Local runtimes** - auto-detect installed CLIs such as `claude`, `codex`, `opencode`, `openclaw`, `hermes`, `gemini`, `pi`, and `cursor-agent`.
+- **Reusable skills** - capture repeatable workflows for future agent tasks.
 
 ## Architecture
 
 | Layer | Stack |
-|-------|-------|
-| Frontend | Next.js 16 (App Router) |
-| Backend | Go (Chi router, sqlc, gorilla/websocket) |
+| --- | --- |
+| Frontend | Next.js 16 |
+| Desktop | Electron |
+| Backend | Go, Chi, sqlc, gorilla/websocket |
 | Database | PostgreSQL 17 with pgvector |
-| Agent Runtime | Local daemon executing Claude Code, Codex, Gemini CLI, OpenClaw, OpenCode, or Hermes |
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
-│   Next.js    │────>│  Go Backend  │────>│   PostgreSQL     │
-│   Frontend   │<────│  (Chi + WS)  │<────│   (pgvector)     │
-└──────────────┘     └──────┬───────┘     └──────────────────┘
-                            │
-                     ┌──────┴───────┐
-                     │ Agent Daemon │  (runs on your machine)
-                     │Claude/Codex/ │
-                     │Gemini/Hermes │
-                     └──────────────┘
-```
+| Runtime | Local daemon executing installed agent CLIs |
 
 ## Next Steps
 
-- [Cloud Quickstart](/getting-started/cloud-quickstart)
 - [Self-Hosting](/getting-started/self-hosting)
+- [Quickstart](/guides/quickstart)
 - [CLI Installation](/cli/installation)
-- [Contributing](/developers/contributing)
+- [CLI Reference](/cli/reference)
+- [Architecture](/developers/architecture)

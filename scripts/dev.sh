@@ -9,11 +9,14 @@ missing=()
 command -v node >/dev/null 2>&1 || missing+=("node")
 command -v pnpm >/dev/null 2>&1 || missing+=("pnpm")
 command -v go >/dev/null 2>&1 || missing+=("go")
-command -v docker >/dev/null 2>&1 || missing+=("docker")
+
+if ! command -v docker >/dev/null 2>&1 && ! command -v podman >/dev/null 2>&1; then
+  missing+=("docker or podman")
+fi
 
 if [ ${#missing[@]} -gt 0 ]; then
   echo "✗ Missing prerequisites: ${missing[*]}"
-  echo "  Please install: Node.js v20+, pnpm v10.28+, Go v1.26+, Docker"
+  echo "  Please install: Node.js v20+, pnpm v10.28+, Go v1.26+, Docker or Podman"
   exit 1
 fi
 

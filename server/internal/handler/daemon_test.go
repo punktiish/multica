@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/multica-ai/multica/server/internal/middleware"
 )
 
 func setHandlerTestWorkspaceRepos(t *testing.T, repos []map[string]string) {
@@ -29,8 +28,7 @@ func setHandlerTestWorkspaceRepos(t *testing.T, repos []map[string]string) {
 	})
 }
 
-// newDaemonTokenRequest creates an HTTP request with daemon token context set
-// (simulating DaemonAuth middleware for mdt_ tokens).
+// newDaemonTokenRequest creates a daemon-route request as the local solo user.
 func newDaemonTokenRequest(method, path string, body any, workspaceID, daemonID string) *http.Request {
 	var buf bytes.Buffer
 	if body != nil {
@@ -38,12 +36,12 @@ func newDaemonTokenRequest(method, path string, body any, workspaceID, daemonID 
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
-	// No X-User-ID — daemon tokens don't set it.
-	ctx := middleware.WithDaemonContext(req.Context(), workspaceID, daemonID)
-	return req.WithContext(ctx)
+	req.Header.Set("X-User-ID", testUserID)
+	req.Header.Set("X-Workspace-ID", workspaceID)
+	return req
 }
 
-func TestDaemonRegister_WithDaemonToken(t *testing.T) {
+func TestDaemonRegister_WithLocalUser(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -60,7 +58,7 @@ func TestDaemonRegister_WithDaemonToken(t *testing.T) {
 
 	testHandler.DaemonRegister(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("DaemonRegister with daemon token: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("DaemonRegister with local user: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var resp map[string]any
@@ -79,66 +77,7 @@ func TestDaemonRegister_WithDaemonToken(t *testing.T) {
 	testPool.Exec(context.Background(), `DELETE FROM agent_runtime WHERE id = $1`, runtimeID)
 }
 
-func TestDaemonRegister_WithDaemonToken_WorkspaceMismatch(t *testing.T) {
-	if testHandler == nil {
-		t.Skip("database not available")
-	}
-
-	w := httptest.NewRecorder()
-	// Daemon token is for a different workspace than the request body.
-	req := newDaemonTokenRequest("POST", "/api/daemon/register", map[string]any{
-		"workspace_id": testWorkspaceID,
-		"daemon_id":    "test-daemon-mdt",
-		"device_name":  "test-device",
-		"runtimes": []map[string]any{
-			{"name": "test-runtime", "type": "claude", "version": "1.0.0", "status": "online"},
-		},
-	}, "00000000-0000-0000-0000-000000000000", "test-daemon-mdt")
-
-	testHandler.DaemonRegister(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("DaemonRegister with mismatched workspace: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestDaemonHeartbeat_WithDaemonToken_CrossWorkspace(t *testing.T) {
-	if testHandler == nil {
-		t.Skip("database not available")
-	}
-
-	// First, register a runtime using PAT (existing flow).
-	w := httptest.NewRecorder()
-	req := newRequest("POST", "/api/daemon/register", map[string]any{
-		"workspace_id": testWorkspaceID,
-		"daemon_id":    "test-daemon-heartbeat",
-		"device_name":  "test-device",
-		"runtimes": []map[string]any{
-			{"name": "test-runtime-hb", "type": "claude", "version": "1.0.0", "status": "online"},
-		},
-	})
-	testHandler.DaemonRegister(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("Setup: DaemonRegister failed: %d: %s", w.Code, w.Body.String())
-	}
-	var regResp map[string]any
-	json.NewDecoder(w.Body).Decode(&regResp)
-	runtimes := regResp["runtimes"].([]any)
-	runtimeID := runtimes[0].(map[string]any)["id"].(string)
-	defer testPool.Exec(context.Background(), `DELETE FROM agent_runtime WHERE id = $1`, runtimeID)
-
-	// Try heartbeat with a daemon token from a DIFFERENT workspace — should fail.
-	w = httptest.NewRecorder()
-	req = newDaemonTokenRequest("POST", "/api/daemon/heartbeat", map[string]any{
-		"runtime_id": runtimeID,
-	}, "00000000-0000-0000-0000-000000000000", "attacker-daemon")
-
-	testHandler.DaemonHeartbeat(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("DaemonHeartbeat with cross-workspace token: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestGetTaskStatus_WithDaemonToken_CrossWorkspace(t *testing.T) {
+func TestGetTaskStatus_WithLocalUser(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -174,34 +113,19 @@ func TestGetTaskStatus_WithDaemonToken_CrossWorkspace(t *testing.T) {
 	}
 	defer testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
 
-	// Try GetTaskStatus with a daemon token from a DIFFERENT workspace — should fail.
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest("GET", "/api/daemon/tasks/"+taskID+"/status", nil,
-		"00000000-0000-0000-0000-000000000000", "attacker-daemon")
+	req := newDaemonTokenRequest("GET", "/api/daemon/tasks/"+taskID+"/status", nil, testWorkspaceID, "legit-daemon")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("taskId", taskID)
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	testHandler.GetTaskStatus(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("GetTaskStatus with cross-workspace token: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Same request with the CORRECT workspace should succeed.
-	w = httptest.NewRecorder()
-	req = newDaemonTokenRequest("GET", "/api/daemon/tasks/"+taskID+"/status", nil,
-		testWorkspaceID, "legit-daemon")
-	req = req.WithContext(context.WithValue(
-		middleware.WithDaemonContext(req.Context(), testWorkspaceID, "legit-daemon"),
-		chi.RouteCtxKey, rctx))
-
-	testHandler.GetTaskStatus(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("GetTaskStatus with correct workspace token: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("GetTaskStatus with local user: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestGetIssueGCCheck_WithDaemonToken_CrossWorkspace(t *testing.T) {
+func TestGetIssueGCCheck_WithLocalUser(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -219,27 +143,13 @@ func TestGetIssueGCCheck_WithDaemonToken_CrossWorkspace(t *testing.T) {
 	}
 	defer testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID)
 
-	// Cross-workspace daemon token must be rejected with 404 — same status
-	// code as "issue not found" so there is no UUID enumeration oracle.
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest("GET", "/api/daemon/issues/"+issueID+"/gc-check", nil,
-		"00000000-0000-0000-0000-000000000000", "attacker-daemon")
-	req = withURLParam(req, "issueId", issueID)
-
-	testHandler.GetIssueGCCheck(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("GetIssueGCCheck with cross-workspace token: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Same-workspace daemon token succeeds and returns status + updated_at.
-	w = httptest.NewRecorder()
-	req = newDaemonTokenRequest("GET", "/api/daemon/issues/"+issueID+"/gc-check", nil,
-		testWorkspaceID, "legit-daemon")
+	req := newDaemonTokenRequest("GET", "/api/daemon/issues/"+issueID+"/gc-check", nil, testWorkspaceID, "legit-daemon")
 	req = withURLParam(req, "issueId", issueID)
 
 	testHandler.GetIssueGCCheck(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("GetIssueGCCheck with correct workspace token: expected 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("GetIssueGCCheck with local user: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	var resp struct {
@@ -297,7 +207,7 @@ func setupForeignWorkspaceFixture(t *testing.T) (string, string) {
 		INSERT INTO agent_runtime (
 			workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at
 		)
-		VALUES ($1, NULL, $2, 'cloud', $3, 'online', $4, '{}'::jsonb, now())
+		VALUES ($1, NULL, $2, 'local', $3, 'online', $4, '{}'::jsonb, now())
 		RETURNING id
 	`, foreignWorkspaceID, "Foreign Runtime", "foreign_runtime", "Foreign runtime").Scan(&runtimeID); err != nil {
 		t.Fatalf("setup: create foreign runtime: %v", err)
@@ -309,7 +219,7 @@ func setupForeignWorkspaceFixture(t *testing.T) (string, string) {
 			workspace_id, name, description, runtime_mode, runtime_config,
 			runtime_id, visibility, max_concurrent_tasks
 		)
-		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'workspace', 1)
+		VALUES ($1, $2, '', 'local', '{}'::jsonb, $3, 'workspace', 1)
 		RETURNING id
 	`, foreignWorkspaceID, "Foreign Agent", runtimeID).Scan(&agentID); err != nil {
 		t.Fatalf("setup: create foreign agent: %v", err)
@@ -541,7 +451,7 @@ func TestGetIssueUsage_CrossWorkspace_Returns404(t *testing.T) {
 	}
 }
 
-func TestGetDaemonWorkspaceRepos_WithDaemonToken(t *testing.T) {
+func TestGetDaemonWorkspaceRepos_WithLocalUser(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -580,21 +490,6 @@ func TestGetDaemonWorkspaceRepos_WithDaemonToken(t *testing.T) {
 	}
 	if resp.ReposVersion == "" {
 		t.Fatal("expected repos_version to be set")
-	}
-}
-
-func TestGetDaemonWorkspaceRepos_WithDaemonToken_WorkspaceMismatch(t *testing.T) {
-	if testHandler == nil {
-		t.Skip("database not available")
-	}
-
-	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest("GET", "/api/daemon/workspaces/"+testWorkspaceID+"/repos", nil, "00000000-0000-0000-0000-000000000000", "test-daemon-mdt")
-	req = withURLParam(req, "workspaceId", testWorkspaceID)
-
-	testHandler.GetDaemonWorkspaceRepos(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("GetDaemonWorkspaceRepos with mismatched workspace: expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -713,7 +608,9 @@ func TestDaemonRegister_MergesLegacyDaemonIDRuntime(t *testing.T) {
 	`, legacyAgentID, legacyIssueID, legacyRuntimeID).Scan(&legacyTaskID); err != nil {
 		t.Fatalf("seed legacy task: %v", err)
 	}
-	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, legacyTaskID) })
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, legacyTaskID)
+	})
 
 	// Register under the new stable UUID, declaring the prior hostname-derived
 	// id as legacy. The handler should merge the legacy row into the new one.
@@ -795,8 +692,8 @@ func TestDaemonRegister_MergesLegacyDaemonIDRuntime_ReverseDotLocal(t *testing.T
 	}
 
 	ctx := context.Background()
-	const legacyDaemonID = "ReverseDotLocalHost"                          // stored without .local
-	const emittedLegacyID = "ReverseDotLocalHost.local"                    // daemon now reports with .local
+	const legacyDaemonID = "ReverseDotLocalHost"        // stored without .local
+	const emittedLegacyID = "ReverseDotLocalHost.local" // daemon now reports with .local
 	const newDaemonID = "0192a7b0-0011-7ee9-9c21-30a5bcf86aa2"
 
 	var legacyRuntimeID string
@@ -853,8 +750,8 @@ func TestDaemonRegister_MergesLegacyDaemonIDRuntime_CaseDrift(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	const storedDaemonID = "Jiayuans-MacBook-Pro.local"     // DB has original mixed case
-	const emittedLegacyID = "jiayuans-macbook-pro.local"    // Daemon now reports lowercased
+	const storedDaemonID = "Jiayuans-MacBook-Pro.local"  // DB has original mixed case
+	const emittedLegacyID = "jiayuans-macbook-pro.local" // Daemon now reports lowercased
 	const newDaemonID = "0192a7b0-0022-7ee9-9c21-30a5bcf86aa3"
 
 	var legacyRuntimeID string
@@ -1105,23 +1002,10 @@ func TestStartTask_AutopilotRunOnlyTask_ResolvesWorkspace(t *testing.T) {
 	}
 	defer testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID)
 
-	// Cross-workspace daemon token must still 404.
 	w := httptest.NewRecorder()
-	req := newDaemonTokenRequest("POST", "/api/daemon/tasks/"+taskID+"/start", nil,
-		"00000000-0000-0000-0000-000000000000", "attacker-daemon")
+	req := newDaemonTokenRequest("POST", "/api/daemon/tasks/"+taskID+"/start", nil, testWorkspaceID, "legit-daemon")
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("taskId", taskID)
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-
-	testHandler.StartTask(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("StartTask with cross-workspace token: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// Same-workspace daemon token must succeed — this is the bug in #1224.
-	w = httptest.NewRecorder()
-	req = newDaemonTokenRequest("POST", "/api/daemon/tasks/"+taskID+"/start", nil,
-		testWorkspaceID, "legit-daemon")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	testHandler.StartTask(w, req)

@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// authRequestWithAgent makes an authenticated request with X-Agent-ID header,
+// authRequestWithAgent makes a local request with X-Agent-ID header,
 // causing the server to resolve the actor as an agent instead of a member.
 func authRequestWithAgent(t *testing.T, method, path string, body any, agentID string) *http.Response {
 	t.Helper()
@@ -24,7 +24,6 @@ func authRequestWithAgent(t *testing.T, method, path string, body any, agentID s
 		t.Fatalf("failed to create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+testToken)
 	req.Header.Set("X-Workspace-ID", testWorkspaceID)
 	req.Header.Set("X-Agent-ID", agentID)
 

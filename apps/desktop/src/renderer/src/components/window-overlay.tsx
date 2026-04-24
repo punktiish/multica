@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useImmersiveMode } from "@multica/views/platform";
 import { NewWorkspacePage } from "@multica/views/workspace/new-workspace-page";
-import { InvitePage } from "@multica/views/invite";
 import { useNavigation } from "@multica/views/navigation";
 import { paths } from "@multica/core/paths";
 import { workspaceListOptions } from "@multica/core/workspace/queries";
@@ -9,7 +8,7 @@ import { useWindowOverlayStore } from "@/stores/window-overlay-store";
 
 /**
  * Window-level transition overlay: renders above the tab system when the
- * user is in a pre-workspace flow (create workspace, accept invite).
+ * user is in a pre-workspace flow (create workspace).
  *
  * This component is a thin **platform shell**:
  *  - Hands the window-drag strip and macOS traffic-light hiding
@@ -17,10 +16,7 @@ import { useWindowOverlayStore } from "@/stores/window-overlay-store";
  *  - Covers the tab system (fixed inset, z-50) so the Shell's own TabBar
  *    doesn't leak through
  *
- * All UX affordances (Back button, Log out button, welcome copy, invite
- * card) live inside the shared `NewWorkspacePage` / `InvitePage`
- * components under `packages/views/`, so web and desktop render identical
- * content. The platform split is: UX in shared code, chrome here.
+ * Shared UX lives in `NewWorkspacePage`; platform chrome stays here.
  */
 export function WindowOverlay() {
   const overlay = useWindowOverlayStore((s) => s.overlay);
@@ -39,8 +35,7 @@ function WindowOverlayInner() {
   if (!overlay) return null;
 
   // Back is only meaningful when there's somewhere to go — i.e. the user
-  // has at least one workspace. Zero-workspace users can only Log out or
-  // complete the flow.
+  // has at least one workspace.
   const onBack = wsList.length > 0 ? close : undefined;
 
   return (
@@ -70,12 +65,6 @@ function WindowOverlayInner() {
         {overlay.type === "new-workspace" && (
           <NewWorkspacePage
             onSuccess={(ws) => push(paths.workspace(ws.slug).issues())}
-            onBack={onBack}
-          />
-        )}
-        {overlay.type === "invite" && (
-          <InvitePage
-            invitationId={overlay.invitationId}
             onBack={onBack}
           />
         )}

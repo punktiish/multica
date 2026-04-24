@@ -1,7 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
 import { paths } from "@multica/core/paths";
@@ -16,10 +15,6 @@ export default function Page() {
     ...workspaceListOptions(),
     enabled: !!user,
   });
-
-  useEffect(() => {
-    if (!isLoading && !user) router.replace(paths.login());
-  }, [isLoading, user, router]);
 
   if (isLoading || !user) return null;
 

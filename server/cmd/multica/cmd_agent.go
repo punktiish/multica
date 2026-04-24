@@ -159,13 +159,12 @@ func resolveProfile(cmd *cobra.Command) string {
 func newAPIClient(cmd *cobra.Command) (*cli.APIClient, error) {
 	serverURL := resolveServerURL(cmd)
 	workspaceID := resolveWorkspaceID(cmd)
-	token := resolveToken(cmd)
 
 	if serverURL == "" {
 		return nil, fmt.Errorf("server URL not set: use --server-url flag, MULTICA_SERVER_URL env, or 'multica config set server_url <url>'")
 	}
 
-	client := cli.NewAPIClient(serverURL, workspaceID, token)
+	client := cli.NewAPIClient(serverURL, workspaceID)
 	// When running inside a daemon task, attribute actions to the agent.
 	if agentID := os.Getenv("MULTICA_AGENT_ID"); agentID != "" {
 		client.AgentID = agentID

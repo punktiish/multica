@@ -8,7 +8,6 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  Cloud,
   File,
   FileText,
   Folder,
@@ -675,7 +674,7 @@ const runtimeStatusConfig = {
 
 const mockRuntimeList = [
   { name: "MacBook Pro", mode: "local" as const, status: "online" as const, device: "arm64 / macOS 15.2", lastSeen: "Just now" },
-  { name: "Cloud (Anthropic)", mode: "cloud" as const, status: "online" as const, device: "api.anthropic.com", lastSeen: "Just now" },
+  { name: "Linux Server", mode: "local" as const, status: "online" as const, device: "x86_64 / Ubuntu 24.04", lastSeen: "Just now" },
   { name: "Linux Server", mode: "local" as const, status: "offline" as const, device: "x86_64 / Ubuntu 24.04", lastSeen: "3h ago" },
 ];
 
@@ -819,11 +818,7 @@ function RuntimesVisual() {
                 onClick={() => setSelectedRuntime(i)}
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-                  {rt.mode === "cloud" ? (
-                    <Cloud className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <Monitor className="h-4 w-4 text-muted-foreground" />
-                  )}
+                  <Monitor className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
@@ -844,11 +839,7 @@ function RuntimesVisual() {
           {/* Header */}
           <div className="flex items-center gap-2.5 border-b px-4 py-2.5">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-              {mockRuntimeList[selectedRuntime]?.mode === "cloud" ? (
-                <Cloud className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <Monitor className="h-4 w-4 text-muted-foreground" />
-              )}
+              <Monitor className="h-4 w-4 text-muted-foreground" />
             </div>
             <span className="text-sm font-semibold">{mockRuntimeList[selectedRuntime]?.name}</span>
             <div className="flex items-center gap-1.5">

@@ -53,10 +53,7 @@ export function LandingHeader({
             <GitHubMark className="size-3.5" />
             {t.header.github}
           </Link>
-          <Link
-            href={user ? "/" : "/login"}
-            className={headerButtonClassName("solid", variant)}
-          >
+          <Link href={user ? "/" : "/workspaces/new"} className={headerButtonClassName("solid", variant)}>
             {user ? t.header.dashboard : t.header.login}
           </Link>
         </div>

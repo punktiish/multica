@@ -13,11 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/realtime"
 )
@@ -25,13 +23,9 @@ import (
 var (
 	testServer      *httptest.Server
 	testPool        *pgxpool.Pool
-	testToken       string
 	testUserID      string
 	testWorkspaceID string
 )
-
-// jwtSecret is resolved at runtime via auth.JWTSecret() so it respects
-// the JWT_SECRET env var (set in .env) and stays in sync with the server.
 
 const (
 	integrationTestEmail         = "integration-test@multica.ai"
@@ -72,15 +66,6 @@ func TestMain(m *testing.M) {
 	registerListeners(bus, hub)
 	router := NewRouter(pool, hub, bus)
 	testServer = httptest.NewServer(router)
-
-	// Generate a JWT token directly for the test user
-	testToken, err = generateTestJWT(testUserID, integrationTestEmail, integrationTestName)
-	if err != nil {
-		fmt.Printf("Failed to generate test JWT: %v\n", err)
-		testServer.Close()
-		pool.Close()
-		os.Exit(1)
-	}
 
 	code := m.Run()
 
@@ -130,7 +115,7 @@ func setupIntegrationTestFixture(ctx context.Context, pool *pgxpool.Pool) (strin
 		INSERT INTO agent_runtime (
 			workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at
 		)
-		VALUES ($1, NULL, $2, 'cloud', $3, 'online', $4, '{}'::jsonb, now())
+		VALUES ($1, NULL, $2, 'local', $3, 'online', $4, '{}'::jsonb, now())
 		RETURNING id
 	`, workspaceID, "Integration Test Runtime", "integration_test_runtime", "Integration test runtime").Scan(&runtimeID); err != nil {
 		return "", "", err
@@ -141,7 +126,7 @@ func setupIntegrationTestFixture(ctx context.Context, pool *pgxpool.Pool) (strin
 			workspace_id, name, description, runtime_mode, runtime_config,
 			runtime_id, visibility, max_concurrent_tasks, owner_id
 		)
-		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'workspace', 1, $4)
+		VALUES ($1, $2, '', 'local', '{}'::jsonb, $3, 'workspace', 1, $4)
 	`, workspaceID, "Integration Test Agent", runtimeID, userID); err != nil {
 		return "", "", err
 	}
@@ -159,7 +144,6 @@ func cleanupIntegrationTestFixture(ctx context.Context, pool *pgxpool.Pool) erro
 	return nil
 }
 
-// Helper to make authenticated requests
 func authRequest(t *testing.T, method, path string, body any) *http.Response {
 	t.Helper()
 	var bodyReader io.Reader
@@ -172,7 +156,6 @@ func authRequest(t *testing.T, method, path string, body any) *http.Response {
 		t.Fatalf("failed to create request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+testToken)
 	req.Header.Set("X-Workspace-ID", testWorkspaceID)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -188,17 +171,6 @@ func readJSON(t *testing.T, resp *http.Response, v any) {
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-}
-
-func generateTestJWT(userID, email, name string) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":   userID,
-		"email": email,
-		"name":  name,
-		"exp":   time.Now().Add(72 * time.Hour).Unix(),
-		"iat":   time.Now().Unix(),
-	})
-	return token.SignedString(auth.JWTSecret())
 }
 
 // ---- Health ----
@@ -218,208 +190,6 @@ func TestHealth(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	if result["status"] != "ok" {
 		t.Fatalf("expected status ok, got %s", result["status"])
-	}
-}
-
-// ---- Auth ----
-
-func TestSendCodeAndVerify(t *testing.T) {
-	const email = "integration-sendcode@multica.ai"
-	ctx := context.Background()
-
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
-		var userID string
-		err := testPool.QueryRow(ctx, `SELECT id FROM "user" WHERE email = $1`, email).Scan(&userID)
-		if err == nil {
-			rows, queryErr := testPool.Query(ctx, `
-				SELECT w.id FROM workspace w JOIN member m ON m.workspace_id = w.id WHERE m.user_id = $1
-			`, userID)
-			if queryErr == nil {
-				defer rows.Close()
-				for rows.Next() {
-					var wsID string
-					if rows.Scan(&wsID) == nil {
-						testPool.Exec(ctx, `DELETE FROM workspace WHERE id = $1`, wsID)
-					}
-				}
-			}
-		}
-		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
-	})
-
-	// Step 1: Send code
-	body, _ := json.Marshal(map[string]string{"email": email})
-	resp, err := http.Post(testServer.URL+"/auth/send-code", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("send-code failed: %v", err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("send-code: expected 200, got %d", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// Read code from DB
-	var code string
-	err = testPool.QueryRow(ctx, `SELECT code FROM verification_code WHERE email = $1 ORDER BY created_at DESC LIMIT 1`, email).Scan(&code)
-	if err != nil {
-		t.Fatalf("failed to read code from DB: %v", err)
-	}
-
-	// Step 2: Verify code
-	body, _ = json.Marshal(map[string]string{"email": email, "code": code})
-	resp, err = http.Post(testServer.URL+"/auth/verify-code", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("verify-code failed: %v", err)
-	}
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		t.Fatalf("verify-code: expected 200, got %d: %s", resp.StatusCode, respBody)
-	}
-
-	var loginResp struct {
-		Token string `json:"token"`
-		User  struct {
-			Email string `json:"email"`
-		} `json:"user"`
-	}
-	readJSON(t, resp, &loginResp)
-
-	if loginResp.Token == "" {
-		t.Fatal("expected non-empty token")
-	}
-	if loginResp.User.Email != email {
-		t.Fatalf("expected email '%s', got '%s'", email, loginResp.User.Email)
-	}
-
-	// Verify the token works with /api/me
-	req, _ := http.NewRequest("GET", testServer.URL+"/api/me", nil)
-	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
-	meResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("getMe failed: %v", err)
-	}
-	if meResp.StatusCode != 200 {
-		t.Fatalf("getMe: expected 200, got %d", meResp.StatusCode)
-	}
-	meResp.Body.Close()
-}
-
-func TestVerifyCodeNewUserHasNoWorkspace(t *testing.T) {
-	const email = "new-integration-verify@multica.ai"
-	ctx := context.Background()
-
-	t.Cleanup(func() {
-		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
-		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
-	})
-
-	testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
-
-	// Send code
-	body, _ := json.Marshal(map[string]string{"email": email})
-	resp, err := http.Post(testServer.URL+"/auth/send-code", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("send-code failed: %v", err)
-	}
-	resp.Body.Close()
-
-	// Read code from DB
-	var code string
-	err = testPool.QueryRow(ctx, `SELECT code FROM verification_code WHERE email = $1 ORDER BY created_at DESC LIMIT 1`, email).Scan(&code)
-	if err != nil {
-		t.Fatalf("failed to read code from DB: %v", err)
-	}
-
-	// Verify code
-	body, _ = json.Marshal(map[string]string{"email": email, "code": code})
-	resp, err = http.Post(testServer.URL+"/auth/verify-code", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("verify-code failed: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("verify-code: expected 200, got %d", resp.StatusCode)
-	}
-
-	var loginResp struct {
-		Token string `json:"token"`
-	}
-	readJSON(t, resp, &loginResp)
-
-	// New users should have no workspaces (/workspaces/new creates one)
-	req, _ := http.NewRequest("GET", testServer.URL+"/api/workspaces", nil)
-	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
-	workspacesResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("listWorkspaces failed: %v", err)
-	}
-	defer workspacesResp.Body.Close()
-
-	if workspacesResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", workspacesResp.StatusCode)
-	}
-
-	var workspaces []struct {
-		Name string `json:"name"`
-		Slug string `json:"slug"`
-	}
-	readJSON(t, workspacesResp, &workspaces)
-
-	if len(workspaces) != 0 {
-		t.Fatalf("expected 0 workspaces for new user, got %d", len(workspaces))
-	}
-}
-
-func TestProtectedRoutesRequireAuth(t *testing.T) {
-	paths := []string{"/api/me", "/api/issues", "/api/agents", "/api/inbox", "/api/workspaces"}
-
-	for _, path := range paths {
-		resp, err := http.Get(testServer.URL + path)
-		if err != nil {
-			t.Fatalf("request to %s failed: %v", path, err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode != 401 {
-			t.Fatalf("%s: expected 401, got %d", path, resp.StatusCode)
-		}
-	}
-}
-
-func TestInvalidJWT(t *testing.T) {
-	cases := []struct {
-		name  string
-		token string
-	}{
-		{"garbage token", "not-a-jwt"},
-		{"empty token", ""},
-		{"wrong secret", func() string {
-			claims := jwt.MapClaims{"sub": "test", "exp": time.Now().Add(time.Hour).Unix()}
-			t, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("wrong"))
-			return t
-		}()},
-		{"expired token", func() string {
-			claims := jwt.MapClaims{"sub": "test", "exp": time.Now().Add(-time.Hour).Unix()}
-			t, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(auth.JWTSecret())
-			return t
-		}()},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req, _ := http.NewRequest("GET", testServer.URL+"/api/me", nil)
-			if tc.token != "" {
-				req.Header.Set("Authorization", "Bearer "+tc.token)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("request failed: %v", err)
-			}
-			resp.Body.Close()
-			if resp.StatusCode != 401 {
-				t.Fatalf("expected 401, got %d", resp.StatusCode)
-			}
-		})
 	}
 }
 
@@ -728,33 +498,13 @@ func TestInvalidRequestBodies(t *testing.T) {
 // ---- WebSocket integration through full router ----
 
 func TestWebSocketIntegration(t *testing.T) {
-	// Connect WebSocket client (no token in URL — first-message auth)
 	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws?workspace_id=" + testWorkspaceID
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	headers := http.Header{"X-User-ID": []string{testUserID}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
 	if err != nil {
 		t.Fatalf("WebSocket connection failed: %v", err)
 	}
 	defer conn.Close()
-
-	// First-message auth
-	authMsg, _ := json.Marshal(map[string]any{
-		"type":    "auth",
-		"payload": map[string]string{"token": testToken},
-	})
-	if err := conn.WriteMessage(websocket.TextMessage, authMsg); err != nil {
-		t.Fatalf("failed to send auth message: %v", err)
-	}
-
-	// Read auth_ack
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-	_, ack, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatalf("failed to read auth_ack: %v", err)
-	}
-	if !strings.Contains(string(ack), "auth_ack") {
-		t.Fatalf("expected auth_ack, got %s", ack)
-	}
-	conn.SetReadDeadline(time.Time{})
 
 	// Allow Hub goroutine to process the register and add client to room
 	time.Sleep(100 * time.Millisecond)

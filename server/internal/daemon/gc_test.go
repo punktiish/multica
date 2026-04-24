@@ -31,7 +31,6 @@ func newGCTestDaemon(t *testing.T, handler http.Handler) *Daemon {
 	}
 	d := New(cfg, slog.Default())
 	d.client = NewClient(srv.URL)
-	d.client.SetToken("test-token")
 	return d
 }
 

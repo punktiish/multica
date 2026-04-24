@@ -107,7 +107,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	d.logger.Info("starting daemon", logFields...)
 
-	// Load auth token from CLI config.
+	// Solo local mode does not require bearer-token authentication.
 	if err := d.resolveAuth(); err != nil {
 		return err
 	}
@@ -157,22 +157,10 @@ func (d *Daemon) deregisterRuntimes() {
 	}
 }
 
-// resolveAuth loads the auth token from the CLI config for the active profile.
+// resolveAuth intentionally leaves the daemon unauthenticated. The local server
+// injects the solo user for daemon routes.
 func (d *Daemon) resolveAuth() error {
-	cfg, err := cli.LoadCLIConfigForProfile(d.cfg.Profile)
-	if err != nil {
-		return fmt.Errorf("load CLI config: %w", err)
-	}
-	if cfg.Token == "" {
-		loginHint := "'multica login'"
-		if d.cfg.Profile != "" {
-			loginHint = fmt.Sprintf("'multica login --profile %s'", d.cfg.Profile)
-		}
-		d.logger.Warn("not authenticated — run " + loginHint + " to authenticate, then restart the daemon")
-		return fmt.Errorf("not authenticated: run %s first", loginHint)
-	}
-	d.client.SetToken(cfg.Token)
-	d.logger.Info("authenticated")
+	d.logger.Info("using solo local server session")
 	return nil
 }
 
@@ -1011,10 +999,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLo
 
 	prompt := BuildPrompt(task)
 
-	// Pass the daemon's auth credentials and context so the spawned agent CLI
-	// can call the Multica API and the local daemon (e.g. `multica repo checkout`).
+	// Pass local context so the spawned agent CLI can call the Multica API and
+	// the local daemon (e.g. `multica repo checkout`).
 	agentEnv := map[string]string{
-		"MULTICA_TOKEN":        d.client.Token(),
 		"MULTICA_SERVER_URL":   d.cfg.ServerBaseURL,
 		"MULTICA_DAEMON_PORT":  fmt.Sprintf("%d", d.cfg.HealthPort),
 		"MULTICA_WORKSPACE_ID": task.WorkspaceID,

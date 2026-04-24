@@ -9,11 +9,10 @@ import { workspaceListOptions } from "@multica/core/workspace";
 import { useNavigation } from "../navigation";
 
 /**
- * Auth + workspace gate for the dashboard.
+ * Local user + workspace gate for the dashboard.
  *
  * Redirect logic:
  *  - Auth still loading → wait
- *  - Not logged in → /login
  *  - Logged in but workspace list not yet loaded → wait (don't bounce prematurely)
  *  - Logged in but URL slug doesn't resolve to any workspace → /workspaces/new
  *
@@ -34,10 +33,7 @@ export function useDashboardGuard() {
 
   useEffect(() => {
     if (isLoading) return;
-    if (!user) {
-      replace(paths.login());
-      return;
-    }
+    if (!user) return;
     // Wait for workspace list to settle before deciding "no workspace".
     if (!workspaceListFetched) return;
     if (!workspace) {

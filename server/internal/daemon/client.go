@@ -39,7 +39,6 @@ func isWorkspaceNotFoundError(err error) bool {
 // Client handles HTTP communication with the Multica server daemon API.
 type Client struct {
 	baseURL string
-	token   string
 	client  *http.Client
 }
 
@@ -49,16 +48,6 @@ func NewClient(baseURL string) *Client {
 		baseURL: baseURL,
 		client:  &http.Client{Timeout: 30 * time.Second},
 	}
-}
-
-// SetToken sets the auth token for authenticated requests.
-func (c *Client) SetToken(token string) {
-	c.token = token
-}
-
-// Token returns the current auth token.
-func (c *Client) Token() string {
-	return c.token
 }
 
 func (c *Client) ClaimTask(ctx context.Context, runtimeID string) (*Task, error) {
@@ -273,9 +262,6 @@ func (c *Client) postJSON(ctx context.Context, path string, reqBody any, respBod
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -298,9 +284,6 @@ func (c *Client) getJSON(ctx context.Context, path string, respBody any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return err
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
 	resp, err := c.client.Do(req)

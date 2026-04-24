@@ -46,7 +46,6 @@ import type {
   TaskCompletedPayload,
   TaskFailedPayload,
   ChatDonePayload,
-  InvitationCreatedPayload,
 } from "../types";
 
 const chatWsLogger = createLogger("chat.ws");
@@ -312,40 +311,11 @@ export function useRealtimeSync(
       const myUserId = authStore.getState().user?.id;
       if (member.user_id === myUserId) {
         qc.invalidateQueries({ queryKey: workspaceKeys.list() });
-        qc.invalidateQueries({ queryKey: workspaceKeys.myInvitations() });
         onToast?.(
           `You joined ${workspace_name ?? "a workspace"}`,
           "info",
         );
       }
-    });
-
-    // invitation:created — notify the invitee of a new pending invitation
-    const unsubInvitationCreated = ws.on("invitation:created", (p) => {
-      const { workspace_name } = p as InvitationCreatedPayload;
-      qc.invalidateQueries({ queryKey: workspaceKeys.myInvitations() });
-      onToast?.(
-        `You were invited to ${workspace_name ?? "a workspace"}`,
-        "info",
-      );
-    });
-
-    // invitation:accepted / declined / revoked — refresh invitation lists
-    const unsubInvitationAccepted = ws.on("invitation:accepted", () => {
-      const currentWsId = getCurrentWsId();
-      if (currentWsId) {
-        qc.invalidateQueries({ queryKey: workspaceKeys.invitations(currentWsId) });
-        qc.invalidateQueries({ queryKey: workspaceKeys.members(currentWsId) });
-      }
-    });
-    const unsubInvitationDeclined = ws.on("invitation:declined", () => {
-      const currentWsId = getCurrentWsId();
-      if (currentWsId) {
-        qc.invalidateQueries({ queryKey: workspaceKeys.invitations(currentWsId) });
-      }
-    });
-    const unsubInvitationRevoked = ws.on("invitation:revoked", () => {
-      qc.invalidateQueries({ queryKey: workspaceKeys.myInvitations() });
     });
 
     // --- Chat / task events (global, survives ChatWindow unmount) ---
@@ -464,10 +434,6 @@ export function useRealtimeSync(
       unsubWsDeleted();
       unsubMemberRemoved();
       unsubMemberAdded();
-      unsubInvitationCreated();
-      unsubInvitationAccepted();
-      unsubInvitationDeclined();
-      unsubInvitationRevoked();
       unsubTaskMessage();
       unsubChatMessage();
       unsubChatDone();

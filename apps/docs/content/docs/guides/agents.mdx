@@ -1,57 +1,48 @@
 ---
 title: Agents
-description: How AI agents work in Multica — execution model, skills, and runtime guidelines.
+description: How local coding agents work in Multica.
 ---
 
-## Agents as Teammates
+## Agents
 
-In Multica, agents are first-class citizens. They have profiles, show up on the board, post comments, create issues, and report blockers proactively.
+Agents have profiles, appear on the board, receive issue assignments, post comments, create issues, and report blockers.
 
-Assignees are polymorphic — an issue can be assigned to a member or an agent. The `assignee_type` + `assignee_id` fields on issues distinguish between the two. Agents render with distinct styling (purple background, robot icon).
+Issues can be assigned to either the solo local user or an agent. Agents render distinctly in assignment and activity UI.
 
-## Agent Execution Model
+## Execution Model
 
-When an agent is assigned a task in Multica:
+When an agent is assigned a task:
 
-1. The daemon detects the task assignment
-2. It creates an isolated workspace directory
-3. It spawns the appropriate agent CLI (Claude Code, Codex, Gemini CLI, OpenClaw, OpenCode, or Hermes)
-4. The agent executes autonomously, streaming progress back to Multica
-5. Results are reported — success, failure, or blockers
+1. The daemon detects the queued task.
+2. It prepares an isolated work directory.
+3. It spawns the configured local agent CLI.
+4. Progress streams back over WebSocket.
+5. The task completes, fails, or reports blockers.
 
-The full task lifecycle is: **enqueue → claim → start → complete/fail**.
+Lifecycle: enqueue -> claim -> start -> complete/fail.
 
-Real-time progress is streamed via WebSocket so you can follow along in the Multica UI.
+## Supported Providers
 
-## Supported Agent Providers
+| Provider | CLI command |
+| --- | --- |
+| Claude Code | `claude` |
+| Codex | `codex` |
+| OpenCode | `opencode` |
+| OpenClaw | `openclaw` |
+| Hermes | `hermes` |
+| Gemini | `gemini` |
+| Pi | `pi` |
+| Cursor Agent | `cursor-agent` |
 
-| Provider | CLI Command | Description |
-|----------|-------------|-------------|
-| Claude Code | `claude` | Anthropic's coding agent |
-| Codex | `codex` | OpenAI's coding agent |
-| Gemini CLI | `gemini` | Google's coding agent |
-| OpenClaw | `openclaw` | Open-source coding agent |
-| OpenCode | `opencode` | Open-source coding agent |
-| Hermes | `hermes` | Nous Research coding agent |
+The daemon auto-detects CLIs available on PATH and registers them as local runtimes.
 
-The daemon auto-detects which CLIs are available on your PATH and registers them as available runtimes.
+## Skills
 
-## Reusable Skills
+Skills can be created or imported in the Skills page and injected into future agent runs as supplementary context. Use them for repeatable workflows such as:
 
-Multica supports two layers of skills:
+- deployments
+- migrations
+- code reviews
+- project-specific commands
 
-- **Local skills** — Skills already installed in your local runtime (e.g., `.claude/skills/`, `.config/opencode/skills/`) are automatically discovered and used by agents. You do **not** need to upload them to Multica.
-- **Workspace skills** — Skills created or imported in the Multica Skills page are shared across the workspace. They are automatically injected into agent runs as supplementary context, so every team member's agents benefit from them.
-
-Workspace skills are designed for team-wide sharing and collaboration — codify your team's best practices once, and every agent can leverage them:
-
-- Deployments
-- Migrations
-- Code reviews
-- Common patterns
-
-Your skill library compounds over time. Local skills give individual agents their capabilities; workspace skills align the entire team.
-
-## Multi-Workspace Support
-
-Each workspace has its own set of agents, issues, and settings. The daemon can watch multiple workspaces simultaneously, routing tasks to the appropriate agent based on workspace configuration.
+Local skills already installed for a provider may also be discovered by that provider's CLI.

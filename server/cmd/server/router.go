@@ -12,12 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
-	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/solo"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -60,19 +58,13 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 	if err != nil {
 		panic(err)
 	}
-	emailSvc := service.NewEmailService()
 
 	var store storage.Storage
 	if local := storage.NewLocalStorageFromEnv(); local != nil {
 		store = local
 	}
 
-	signupConfig := handler.Config{
-		AllowSignup:         os.Getenv("ALLOW_SIGNUP") != "false",
-		AllowedEmails:       splitAndTrim(os.Getenv("ALLOWED_EMAILS")),
-		AllowedEmailDomains: splitAndTrim(os.Getenv("ALLOWED_EMAIL_DOMAINS")),
-	}
-	h := handler.New(queries, pool, hub, bus, emailSvc, store, signupConfig)
+	h := handler.New(queries, pool, hub, bus, store)
 
 	r := chi.NewRouter()
 
@@ -102,7 +94,6 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 
 	// WebSocket
 	mc := &membershipChecker{queries: queries}
-	pr := &patResolver{queries: queries}
 	slugResolver := realtime.SlugResolver(func(ctx context.Context, slug string) (string, error) {
 		ws, err := queries.GetWorkspaceBySlug(ctx, slug)
 		if err != nil {
@@ -111,7 +102,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		return util.UUIDToString(ws.ID), nil
 	})
 	r.With(middleware.LocalUser(identity.UserID)).Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		realtime.HandleWebSocket(hub, mc, pr, slugResolver, w, r)
+		realtime.HandleWebSocket(hub, mc, slugResolver, w, r)
 	})
 
 	// Local file serving (when using local storage)
@@ -122,7 +113,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		})
 	}
 
-	// Daemon API routes (require daemon token or valid user token)
+	// Daemon API routes run against the local solo user.
 	r.Route("/api/daemon", func(r chi.Router) {
 		r.Use(middleware.LocalUser(identity.UserID))
 
@@ -157,7 +148,6 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		r.Get("/api/config", h.GetConfig)
 		r.Get("/api/me", h.GetMe)
 		r.Patch("/api/me", h.UpdateMe)
-		r.Post("/api/cli-token", h.IssueCliToken)
 		r.Post("/api/upload-file", h.UploadFile)
 
 		r.Route("/api/workspaces", func(r chi.Router) {
@@ -367,41 +357,10 @@ func (mc *membershipChecker) IsMember(ctx context.Context, userID, workspaceID s
 	return err == nil
 }
 
-// patResolver implements realtime.PATResolver using database queries.
-type patResolver struct {
-	queries *db.Queries
-}
-
-func (pr *patResolver) ResolveToken(ctx context.Context, token string) (string, bool) {
-	hash := auth.HashToken(token)
-	pat, err := pr.queries.GetPersonalAccessTokenByHash(ctx, hash)
-	if err != nil {
-		return "", false
-	}
-	// Best-effort: update last_used_at
-	go pr.queries.UpdatePersonalAccessTokenLastUsed(context.Background(), pat.ID)
-	return util.UUIDToString(pat.UserID), true
-}
-
 func parseUUID(s string) pgtype.UUID {
 	var u pgtype.UUID
 	if err := u.Scan(s); err != nil {
 		return pgtype.UUID{}
 	}
 	return u
-}
-
-func splitAndTrim(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	res := make([]string, 0, len(parts))
-	for _, p := range parts {
-		trimmed := strings.TrimSpace(p)
-		if trimmed != "" {
-			res = append(res, trimmed)
-		}
-	}
-	return res
 }

@@ -1,6 +1,6 @@
 export type AgentStatus = "idle" | "working" | "blocked" | "error" | "offline";
 
-export type AgentRuntimeMode = "local" | "cloud";
+export type AgentRuntimeMode = "local";
 
 export type AgentVisibility = "workspace" | "private";
 

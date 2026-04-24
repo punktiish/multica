@@ -27,7 +27,7 @@ func TestResolveAgent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := cli.NewAPIClient(srv.URL, "ws-1", "test-token")
+	client := cli.NewAPIClient(srv.URL, "ws-1")
 	ctx := context.Background()
 
 	t.Run("passes through a UUID without lookup", func(t *testing.T) {
@@ -79,7 +79,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("missing workspace ID for name lookup", func(t *testing.T) {
-		noWSClient := cli.NewAPIClient(srv.URL, "", "test-token")
+		noWSClient := cli.NewAPIClient(srv.URL, "")
 		_, err := resolveAgent(ctx, noWSClient, "Lambda")
 		if err == nil {
 			t.Fatal("expected error when workspace ID is missing")
@@ -87,7 +87,7 @@ func TestResolveAgent(t *testing.T) {
 	})
 
 	t.Run("UUID works without workspace ID", func(t *testing.T) {
-		noWSClient := cli.NewAPIClient(srv.URL, "", "test-token")
+		noWSClient := cli.NewAPIClient(srv.URL, "")
 		id := "55555555-5555-5555-5555-555555555555"
 		got, err := resolveAgent(ctx, noWSClient, id)
 		if err != nil {

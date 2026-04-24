@@ -76,7 +76,7 @@ func TestResolveAssignee(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := cli.NewAPIClient(srv.URL, "ws-1", "test-token")
+	client := cli.NewAPIClient(srv.URL, "ws-1")
 	ctx := context.Background()
 
 	t.Run("exact match member", func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestResolveAssignee(t *testing.T) {
 	})
 
 	t.Run("missing workspace ID", func(t *testing.T) {
-		noWSClient := cli.NewAPIClient(srv.URL, "", "test-token")
+		noWSClient := cli.NewAPIClient(srv.URL, "")
 		_, _, err := resolveAssignee(ctx, noWSClient, "alice")
 		if err == nil {
 			t.Fatal("expected error for missing workspace ID")
@@ -165,7 +165,7 @@ func TestIssueSubscriberList(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := cli.NewAPIClient(srv.URL, "ws-1", "test-token")
+	client := cli.NewAPIClient(srv.URL, "ws-1")
 	ctx := context.Background()
 
 	var got []map[string]any
@@ -247,7 +247,7 @@ func TestIssueSubscriberMutationBody(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			client := cli.NewAPIClient(srv.URL, "ws-1", "test-token")
+			client := cli.NewAPIClient(srv.URL, "ws-1")
 			ctx := context.Background()
 
 			body := map[string]any{}

@@ -52,7 +52,7 @@ export const mockAgents: Agent[] = [
     instructions: "",
     avatar_url: null,
     status: "idle",
-    runtime_mode: "cloud",
+    runtime_mode: "local",
     runtime_config: {},
     custom_env: {},
     custom_args: [],

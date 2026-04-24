@@ -11,10 +11,10 @@ const (
 	EventCommentCreated       = "comment:created"
 	EventCommentUpdated       = "comment:updated"
 	EventCommentDeleted       = "comment:deleted"
-	EventReactionAdded          = "reaction:added"
-	EventReactionRemoved        = "reaction:removed"
-	EventIssueReactionAdded     = "issue_reaction:added"
-	EventIssueReactionRemoved   = "issue_reaction:removed"
+	EventReactionAdded        = "reaction:added"
+	EventReactionRemoved      = "reaction:removed"
+	EventIssueReactionAdded   = "issue_reaction:added"
+	EventIssueReactionRemoved = "issue_reaction:removed"
 
 	// Agent events
 	EventAgentStatus   = "agent:status"
@@ -71,12 +71,6 @@ const (
 	// Pin events
 	EventPinCreated = "pin:created"
 	EventPinDeleted = "pin:deleted"
-
-	// Invitation events
-	EventInvitationCreated  = "invitation:created"
-	EventInvitationAccepted = "invitation:accepted"
-	EventInvitationDeclined = "invitation:declined"
-	EventInvitationRevoked  = "invitation:revoked"
 
 	// Autopilot events
 	EventAutopilotCreated  = "autopilot:created"

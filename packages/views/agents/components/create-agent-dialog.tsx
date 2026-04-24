@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Cloud, ChevronDown, Globe, Lock, Loader2 } from "lucide-react";
+import { Monitor, ChevronDown, Globe, Lock, Loader2 } from "lucide-react";
 import { ProviderLogo } from "../../runtimes/components/provider-logo";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { ModelDropdown } from "./model-dropdown";
@@ -211,18 +211,13 @@ export function CreateAgentDialog({
                 ) : selectedRuntime ? (
                   <ProviderLogo provider={selectedRuntime.provider} className="h-4 w-4 shrink-0" />
                 ) : (
-                  <Cloud className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Monitor className="h-4 w-4 shrink-0 text-muted-foreground" />
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate font-medium">
                       {runtimesLoading ? "Loading runtimes..." : (selectedRuntime?.name ?? "No runtime available")}
                     </span>
-                    {selectedRuntime?.runtime_mode === "cloud" && (
-                      <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-xs font-medium text-info">
-                        Cloud
-                      </span>
-                    )}
                   </div>
                   <div className="truncate text-xs text-muted-foreground">
                     {selectedRuntime
@@ -250,11 +245,6 @@ export function CreateAgentDialog({
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="truncate font-medium">{device.name}</span>
-                          {device.runtime_mode === "cloud" && (
-                            <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-xs font-medium text-info">
-                              Cloud
-                            </span>
-                          )}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                           {ownerMember ? (

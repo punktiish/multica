@@ -24,25 +24,12 @@ import (
 // Daemon workspace ownership helpers
 // ---------------------------------------------------------------------------
 
-// requireDaemonWorkspaceAccess verifies the caller has access to the given workspace.
-// For daemon tokens (mdt_), compares the token's workspace ID directly.
-// For PAT/JWT fallback, verifies user membership in the workspace.
+// requireDaemonWorkspaceAccess verifies the local user has access to the given workspace.
 func (h *Handler) requireDaemonWorkspaceAccess(w http.ResponseWriter, r *http.Request, workspaceID string) bool {
 	if workspaceID == "" {
 		writeError(w, http.StatusNotFound, "not found")
 		return false
 	}
-
-	// Daemon token: workspace must match.
-	if daemonWsID := middleware.DaemonWorkspaceIDFromContext(r.Context()); daemonWsID != "" {
-		if daemonWsID != workspaceID {
-			writeError(w, http.StatusNotFound, "not found")
-			return false
-		}
-		return true
-	}
-
-	// PAT/JWT fallback: verify user is a member of the workspace.
 	_, ok := h.requireWorkspaceMember(w, r, workspaceID, "not found")
 	return ok
 }
@@ -85,9 +72,6 @@ func (h *Handler) requireDaemonTaskAccess(w http.ResponseWriter, r *http.Request
 func (h *Handler) verifyDaemonWorkspaceAccess(r *http.Request, workspaceID string) bool {
 	if workspaceID == "" {
 		return false
-	}
-	if daemonWsID := middleware.DaemonWorkspaceIDFromContext(r.Context()); daemonWsID != "" {
-		return daemonWsID == workspaceID
 	}
 	userID := requestUserID(r)
 	if userID == "" {
@@ -214,24 +198,11 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify workspace access and resolve owner.
-	// Daemon tokens (mdt_) prove workspace access directly; OwnerID will be zero
-	// (the SQL COALESCE preserves any existing owner on upsert).
-	// PAT/JWT tokens require a membership check and set OwnerID from the member.
-	var ownerID pgtype.UUID
-	if daemonWsID := middleware.DaemonWorkspaceIDFromContext(r.Context()); daemonWsID != "" {
-		if daemonWsID != req.WorkspaceID {
-			writeError(w, http.StatusNotFound, "workspace not found")
-			return
-		}
-		// ownerID stays zero — COALESCE keeps the existing owner on upsert.
-	} else {
-		member, ok := h.requireWorkspaceMember(w, r, req.WorkspaceID, "workspace not found")
-		if !ok {
-			return
-		}
-		ownerID = member.UserID
+	member, ok := h.requireWorkspaceMember(w, r, req.WorkspaceID, "workspace not found")
+	if !ok {
+		return
 	}
+	ownerID := member.UserID
 
 	ws, err := h.Queries.GetWorkspace(r.Context(), parseUUID(req.WorkspaceID))
 	if err != nil {
@@ -1207,8 +1178,8 @@ func (h *Handler) GetIssueUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetIssueGCCheck returns minimal issue info needed by the daemon GC loop.
-// Gated on workspace access so a daemon token scoped to workspace A cannot
-// read issue metadata from workspace B via UUID enumeration.
+// Gated on workspace access so local daemon requests cannot read issue metadata
+// from another workspace via UUID enumeration.
 func (h *Handler) GetIssueGCCheck(w http.ResponseWriter, r *http.Request) {
 	issueID := chi.URLParam(r, "issueId")
 	issue, err := h.Queries.GetIssue(r.Context(), parseUUID(issueID))

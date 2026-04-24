@@ -26,8 +26,8 @@ func TestPostJSON(t *testing.T) {
 			if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 				t.Errorf("expected Content-Type application/json, got %s", ct)
 			}
-			if auth := r.Header.Get("Authorization"); auth != "Bearer test-token" {
-				t.Errorf("expected Authorization Bearer test-token, got %s", auth)
+			if auth := r.Header.Get("Authorization"); auth != "" {
+				t.Errorf("expected no Authorization header, got %s", auth)
 			}
 
 			var body reqBody
@@ -43,7 +43,7 @@ func TestPostJSON(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewAPIClient(srv.URL, "", "test-token")
+		client := NewAPIClient(srv.URL, "")
 		var out respBody
 		err := client.PostJSON(context.Background(), "/test", reqBody{Name: "alice", Age: 30}, &out)
 		if err != nil {
@@ -61,7 +61,7 @@ func TestPostJSON(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewAPIClient(srv.URL, "", "test-token")
+		client := NewAPIClient(srv.URL, "")
 		err := client.PostJSON(context.Background(), "/test", reqBody{Name: "bob"}, nil)
 		if err == nil {
 			t.Fatal("expected error, got nil")
@@ -77,7 +77,7 @@ func TestPostJSON(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewAPIClient(srv.URL, "", "test-token")
+		client := NewAPIClient(srv.URL, "")
 		err := client.PostJSON(context.Background(), "/test", reqBody{Name: "charlie"}, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -100,7 +100,7 @@ func TestPostJSON(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		client := NewAPIClient(srv.URL, "ws-abc", "test-token")
+		client := NewAPIClient(srv.URL, "ws-abc")
 		client.AgentID = "agent-123"
 		client.TaskID = "task-456"
 		var out respBody

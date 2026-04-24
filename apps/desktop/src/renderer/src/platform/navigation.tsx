@@ -4,7 +4,6 @@ import {
   NavigationProvider,
   type NavigationAdapter,
 } from "@multica/views/navigation";
-import { useAuthStore } from "@multica/core/auth";
 import { isReservedSlug } from "@multica/core/paths";
 import {
   useTabStore,
@@ -39,7 +38,7 @@ function extractWorkspaceSlug(path: string): string | null {
  * Side effect: when opening the new-workspace overlay, the tab router is
  * ALSO reset to "/". Rationale — the only way a push lands on
  * /workspaces/new is that the workspace context is gone (fresh install,
- * delete-last, leave-last). Leaving the tab parked on a workspace-scoped
+ * delete-last). Leaving the tab parked on a workspace-scoped
  * path would keep those components mounted under the overlay; the next
  * render after the list cache updates would then throw (useWorkspaceId
  * etc) because the slug no longer resolves.
@@ -53,18 +52,6 @@ function tryRouteToOverlay(path: string, router?: DataRouter): boolean {
     }
     return true;
   }
-  if (path.startsWith("/invite/")) {
-    let id = "";
-    try {
-      id = decodeURIComponent(path.slice("/invite/".length));
-    } catch {
-      return true;
-    }
-    if (id) {
-      overlay.open({ type: "invite", invitationId: id });
-      return true;
-    }
-  }
   // Any other navigation cancels a live overlay.
   if (overlay.overlay) overlay.close();
   return false;
@@ -75,8 +62,8 @@ function tryRouteToOverlay(path: string, router?: DataRouter): boolean {
  * was delegated to the tab store (caller should NOT proceed).
  *
  * This is the entry point that makes shared code platform-agnostic:
- * sidebar dropdown, cmd+k "switch workspace", post-delete redirects,
- * invite-accept flow — they all call `useNavigation().push(path)` with a
+ * sidebar dropdown, cmd+k "switch workspace", and post-delete redirects
+ * all call `useNavigation().push(path)` with a
  * full workspace URL, and on desktop we translate "target slug differs
  * from active" into "switch the tab-group that's visible in the TabBar".
  */
@@ -124,10 +111,6 @@ export function DesktopNavigationProvider({
   const adapter: NavigationAdapter = useMemo(
     () => ({
       push: (path: string) => {
-        if (path === "/login") {
-          useAuthStore.getState().logout();
-          return;
-        }
         const active = currentActiveTab();
         if (tryRouteToOverlay(path, active?.router)) return;
         if (tryRouteToOtherWorkspace(path)) return;

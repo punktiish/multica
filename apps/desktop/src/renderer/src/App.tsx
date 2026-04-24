@@ -11,7 +11,6 @@ import { UpdateNotification } from "./components/update-notification";
 import { useTabStore } from "./stores/tab-store";
 import { useWindowOverlayStore } from "./stores/window-overlay-store";
 
-
 function AppContent() {
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
@@ -65,8 +64,7 @@ function AppContent() {
   // Bidirectional new-workspace overlay: visible when there are no
   // workspaces to enter, hidden as soon as one exists. Gated on
   // `workspaceListFetched` so the initial render doesn't flash the
-  // overlay before the list arrives. The overlay's own `invite` type is
-  // not touched here — that's an in-flight task owned by the user.
+  // overlay before the list arrives.
   useEffect(() => {
     if (!user) return;
     if (!workspaceListFetched) return;
@@ -78,7 +76,7 @@ function AppContent() {
       close();
     }
   }, [user, workspaceListFetched, wsCount]);
-  // null = undecided (pre-login or list hasn't settled yet)
+  // null = undecided (local user or list hasn't settled yet)
   // true  = session started with zero workspaces; next transition to >=1 triggers restart
   // false = session started with >=1 workspace, OR we've already restarted; skip
   const sessionStartedEmptyRef = useRef<boolean | null>(null);
@@ -113,29 +111,12 @@ function AppContent() {
 const DAEMON_TARGET_API_URL =
   import.meta.env.VITE_API_URL || "http://localhost:8080";
 
-// On logout, wipe desktop-only in-memory state and stop the daemon so that
-// a subsequent login as a different user never inherits the previous user's
-// tabs, overlay, or credentials. Zustand persist only writes to localStorage;
-// useLogout clears the storage key, but the live stores stay populated until
-// we explicitly reset them here.
-async function handleDaemonLogout() {
-  useTabStore.getState().reset();
-  useWindowOverlayStore.getState().close();
-  try {
-    await window.daemonAPI.stop();
-  } catch {
-    // Daemon may already be stopped.
-  }
-}
-
 export default function App() {
   return (
     <ThemeProvider>
       <CoreProvider
         apiBaseUrl={import.meta.env.VITE_API_URL || "http://localhost:8080"}
         wsUrl={import.meta.env.VITE_WS_URL || "ws://localhost:8080/ws"}
-        cookieAuth
-        onLogout={handleDaemonLogout}
       >
         <AppContent />
       </CoreProvider>

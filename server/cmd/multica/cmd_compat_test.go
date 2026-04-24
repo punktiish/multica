@@ -4,7 +4,16 @@ import (
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/cli"
+	"github.com/spf13/cobra"
 )
+
+func testCmd() *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().String("profile", "", "")
+	cmd.Flags().String("server-url", "", "")
+	cmd.Flags().String("workspace-id", "", "")
+	return cmd
+}
 
 func TestLegacyCompatibilityCommandsRemainAvailable(t *testing.T) {
 	t.Run("workspace get remains available", func(t *testing.T) {

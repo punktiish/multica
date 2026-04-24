@@ -6,9 +6,7 @@ type EventHandler = (payload: unknown, actorId?: string) => void;
 export class WSClient {
   private ws: WebSocket | null = null;
   private baseUrl: string;
-  private token: string | null = null;
   private workspaceSlug: string | null = null;
-  private cookieAuth = false;
   private handlers = new Map<WSEventType, Set<EventHandler>>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private hasConnectedBefore = false;
@@ -16,45 +14,28 @@ export class WSClient {
   private anyHandlers = new Set<(msg: WSMessage) => void>();
   private logger: Logger;
 
-  constructor(url: string, options?: { logger?: Logger; cookieAuth?: boolean }) {
+  constructor(url: string, options?: { logger?: Logger }) {
     this.baseUrl = url;
     this.logger = options?.logger ?? noopLogger;
-    this.cookieAuth = options?.cookieAuth ?? false;
   }
 
-  setAuth(token: string | null, workspaceSlug: string) {
-    this.token = token;
+  setWorkspace(workspaceSlug: string) {
     this.workspaceSlug = workspaceSlug;
   }
 
   connect() {
     const url = new URL(this.baseUrl);
-    // Token is never sent as a URL query parameter — it would be logged by
-    // proxies, CDNs, and browser history.  In cookie mode the HttpOnly cookie
-    // is sent automatically with the upgrade request.  In token mode the token
-    // is delivered as the first WebSocket message after the connection opens.
     if (this.workspaceSlug)
       url.searchParams.set("workspace_slug", this.workspaceSlug);
 
     this.ws = new WebSocket(url.toString());
 
     this.ws.onopen = () => {
-      if (!this.cookieAuth && this.token) {
-        this.ws!.send(
-          JSON.stringify({ type: "auth", payload: { token: this.token } }),
-        );
-        return;
-      }
-
       this.onAuthenticated();
     };
 
     this.ws.onmessage = (event) => {
       const msg = JSON.parse(event.data as string) as WSMessage;
-      if ((msg as any).type === "auth_ack") {
-        this.onAuthenticated();
-        return;
-      }
       this.logger.debug("received", msg.type);
       const eventHandlers = this.handlers.get(msg.type);
       if (eventHandlers) {

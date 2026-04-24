@@ -30,12 +30,6 @@ type dbExecutor interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-type Config struct {
-	AllowSignup         bool
-	AllowedEmails       []string
-	AllowedEmailDomains []string
-}
-
 type Handler struct {
 	Queries          *db.Queries
 	DB               dbExecutor
@@ -44,15 +38,13 @@ type Handler struct {
 	Bus              *events.Bus
 	TaskService      *service.TaskService
 	AutopilotService *service.AutopilotService
-	EmailService     *service.EmailService
 	PingStore        *PingStore
 	UpdateStore      *UpdateStore
 	ModelListStore   *ModelListStore
 	Storage          storage.Storage
-	cfg              Config
 }
 
-func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, cfg Config) *Handler {
+func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, store storage.Storage) *Handler {
 	var executor dbExecutor
 	if candidate, ok := txStarter.(dbExecutor); ok {
 		executor = candidate
@@ -67,12 +59,10 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		Bus:              bus,
 		TaskService:      taskSvc,
 		AutopilotService: service.NewAutopilotService(queries, txStarter, bus, taskSvc),
-		EmailService:     emailService,
 		PingStore:        NewPingStore(),
 		UpdateStore:      NewUpdateStore(),
 		ModelListStore:   NewModelListStore(),
 		Storage:          store,
-		cfg:              cfg,
 	}
 }
 
@@ -204,16 +194,6 @@ func roleAllowed(role string, roles ...string) bool {
 		}
 	}
 	return false
-}
-
-func countOwners(members []db.Member) int {
-	owners := 0
-	for _, member := range members {
-		if member.Role == "owner" {
-			owners++
-		}
-	}
-	return owners
 }
 
 func (h *Handler) getWorkspaceMember(ctx context.Context, userID, workspaceID string) (db.Member, error) {

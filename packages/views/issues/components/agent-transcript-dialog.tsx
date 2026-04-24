@@ -14,7 +14,6 @@ import {
   Copy,
   Check,
   Monitor,
-  Cloud,
   Cpu,
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
@@ -312,9 +311,7 @@ export function AgentTranscriptDialog({
 
             {/* Runtime environment */}
             {runtimeInfo && (
-              <MetadataChip
-                icon={runtimeInfo.runtime_mode === "cloud" ? <Cloud className="h-3 w-3" /> : <Monitor className="h-3 w-3" />}
-              >
+              <MetadataChip icon={<Monitor className="h-3 w-3" />}>
                 {runtimeInfo.name}
                 <span className="text-muted-foreground/60 ml-0.5">({runtimeInfo.runtime_mode})</span>
               </MetadataChip>

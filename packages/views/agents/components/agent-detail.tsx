@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import {
-  Cloud,
   Monitor,
   FileText,
   BookOpenText,
@@ -107,12 +106,8 @@ export function AgentDetail({
               </span>
             )}
             <span className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-              {agent.runtime_mode === "cloud" ? (
-                <Cloud className="h-3 w-3" />
-              ) : (
-                <Monitor className="h-3 w-3" />
-              )}
-              {runtimeDevice?.name ?? (agent.runtime_mode === "cloud" ? "Cloud" : "Local")}
+              <Monitor className="h-3 w-3" />
+              {runtimeDevice?.name ?? "Local"}
             </span>
           </div>
         </div>

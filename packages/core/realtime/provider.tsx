@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { WSClient } from "../api/ws-client";
-import type { WSEventType, StorageAdapter } from "../types";
+import type { WSEventType } from "../types";
 import type { StoreApi, UseBoundStore } from "zustand";
 import type { AuthState } from "../auth/store";
 import {
@@ -35,10 +35,6 @@ export interface WSProviderProps {
   wsUrl: string;
   /** Platform-created auth store instance */
   authStore: UseBoundStore<StoreApi<AuthState>>;
-  /** Platform-specific storage adapter for reading auth tokens */
-  storage: StorageAdapter;
-  /** When true, use HttpOnly cookies instead of token query param for WS auth. */
-  cookieAuth?: boolean;
   /** Optional callback for showing toast messages (platform-specific, e.g. sonner) */
   onToast?: (message: string, type?: "info" | "error") => void;
 }
@@ -47,8 +43,6 @@ export function WSProvider({
   children,
   wsUrl,
   authStore,
-  storage,
-  cookieAuth,
   onToast,
 }: WSProviderProps) {
   const user = authStore((s) => s.user);
@@ -67,16 +61,10 @@ export function WSProvider({
   useEffect(() => {
     if (!user || !wsSlug) return;
 
-    // In token mode we need a token from storage; in cookie mode the HttpOnly
-    // cookie is sent automatically with the WS upgrade request.
-    const token = cookieAuth ? null : storage.getItem("multica_token");
-    if (!cookieAuth && !token) return;
-
     const ws = new WSClient(wsUrl, {
       logger: createLogger("ws"),
-      cookieAuth,
     });
-    ws.setAuth(token, wsSlug);
+    ws.setWorkspace(wsSlug);
     setWsClient(ws);
     ws.connect();
 
@@ -84,7 +72,7 @@ export function WSProvider({
       ws.disconnect();
       setWsClient(null);
     };
-  }, [user, wsSlug, wsUrl, storage, cookieAuth]);
+  }, [user, wsSlug, wsUrl]);
 
   const stores: RealtimeSyncStores = { authStore };
 

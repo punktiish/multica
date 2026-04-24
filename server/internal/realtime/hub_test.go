@@ -2,16 +2,13 @@ package realtime
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
-	"github.com/multica-ai/multica/server/internal/auth"
 )
 
 const testWorkspaceID = "test-workspace"
@@ -24,18 +21,6 @@ func (m *mockMembershipChecker) IsMember(_ context.Context, _, _ string) bool {
 	return true
 }
 
-func makeTestToken(t *testing.T) string {
-	t.Helper()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub": testUserID,
-	})
-	signed, err := token.SignedString(auth.JWTSecret())
-	if err != nil {
-		t.Fatalf("failed to sign test JWT: %v", err)
-	}
-	return signed
-}
-
 func newTestHub(t *testing.T) (*Hub, *httptest.Server) {
 	t.Helper()
 	hub := NewHub()
@@ -44,7 +29,7 @@ func newTestHub(t *testing.T) (*Hub, *httptest.Server) {
 	mc := &mockMembershipChecker{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, mc, nil, nil, w, r)
+		HandleWebSocket(hub, mc, nil, w, r)
 	})
 	server := httptest.NewServer(mux)
 	return hub, server
@@ -52,29 +37,12 @@ func newTestHub(t *testing.T) (*Hub, *httptest.Server) {
 
 func connectWS(t *testing.T, server *httptest.Server) *websocket.Conn {
 	t.Helper()
-	token := makeTestToken(t)
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?workspace_id=" + testWorkspaceID
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	headers := http.Header{"X-User-ID": []string{testUserID}}
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
 	if err != nil {
 		t.Fatalf("failed to connect WebSocket: %v", err)
 	}
-	authMsg, _ := json.Marshal(map[string]any{
-		"type":    "auth",
-		"payload": map[string]string{"token": token},
-	})
-	if err := conn.WriteMessage(websocket.TextMessage, authMsg); err != nil {
-		t.Fatalf("failed to send auth message: %v", err)
-	}
-	// Read auth_ack before returning the connection.
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, ack, err := conn.ReadMessage()
-	if err != nil {
-		t.Fatalf("failed to read auth_ack: %v", err)
-	}
-	if !strings.Contains(string(ack), "auth_ack") {
-		t.Fatalf("expected auth_ack, got %s", ack)
-	}
-	conn.SetReadDeadline(time.Time{})
 	return conn
 }
 

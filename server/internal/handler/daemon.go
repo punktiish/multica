@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -576,13 +577,14 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Include workspace ID and repos so the daemon can set up worktrees.
+	// Repo resolution: issue override > project default > all workspace repos.
 	if task.IssueID.Valid {
 		if issue, err := h.Queries.GetIssue(r.Context(), task.IssueID); err == nil {
 			resp.WorkspaceID = uuidToString(issue.WorkspaceID)
 			if ws, err := h.Queries.GetWorkspace(r.Context(), issue.WorkspaceID); err == nil && ws.Repos != nil {
 				var repos []RepoData
 				if json.Unmarshal(ws.Repos, &repos) == nil && len(repos) > 0 {
-					resp.Repos = repos
+					resp.Repos = resolveReposForTask(r.Context(), h.Queries, issue, repos)
 				}
 			}
 		}
@@ -1194,4 +1196,30 @@ func (h *Handler) GetIssueGCCheck(w http.ResponseWriter, r *http.Request) {
 		"status":     issue.Status,
 		"updated_at": issue.UpdatedAt.Time,
 	})
+}
+
+// resolveReposForTask returns the repos an agent should see for a task.
+// Priority: issue.repo_path > project.repo_path > all workspace repos.
+// If the configured path does not exist in the workspace repo list, it falls
+// back to all repos (prevents arbitrary path injection).
+func resolveReposForTask(ctx context.Context, q *db.Queries, issue db.Issue, workspaceRepos []RepoData) []RepoData {
+	targetPath := ""
+	if issue.RepoPath.Valid && issue.RepoPath.String != "" {
+		targetPath = issue.RepoPath.String
+	} else if issue.ProjectID.Valid {
+		if project, err := q.GetProject(ctx, issue.ProjectID); err == nil && project.RepoPath.Valid && project.RepoPath.String != "" {
+			targetPath = project.RepoPath.String
+		}
+	}
+	if targetPath == "" {
+		return workspaceRepos
+	}
+	for _, r := range workspaceRepos {
+		if r.URL == targetPath {
+			return []RepoData{r}
+		}
+	}
+	// Configured path no longer exists in workspace repos — fall back to all.
+	slog.Warn("resolveReposForTask: configured repo_path not found in workspace repos, falling back", "path", targetPath, "issue_id", uuidToString(issue.ID))
+	return workspaceRepos
 }

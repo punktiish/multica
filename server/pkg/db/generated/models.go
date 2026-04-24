@@ -247,6 +247,7 @@ type Issue struct {
 	ProjectID          pgtype.UUID        `json:"project_id"`
 	OriginType         pgtype.Text        `json:"origin_type"`
 	OriginID           pgtype.UUID        `json:"origin_id"`
+	RepoPath           pgtype.Text        `json:"repo_path"`
 }
 
 type IssueDependency struct {
@@ -316,6 +317,7 @@ type Project struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	Priority    string             `json:"priority"`
+	RepoPath    pgtype.Text        `json:"repo_path"`
 }
 
 type Skill struct {

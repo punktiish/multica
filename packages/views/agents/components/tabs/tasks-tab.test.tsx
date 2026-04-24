@@ -128,6 +128,7 @@ describe("TasksTab", () => {
           creator_id: "user-1",
           parent_issue_id: null,
           project_id: null,
+          repo_path: null,
           position: 1,
           due_date: null,
           created_at: "2026-04-16T00:00:00Z",

@@ -114,6 +114,22 @@ vi.mock("../projects/components/project-picker", () => ({
   ProjectPicker: () => <div data-testid="project-picker" />,
 }));
 
+vi.mock("../projects/components/repo-picker", () => ({
+  RepoPicker: () => <div data-testid="repo-picker" />,
+}));
+
+vi.mock("@multica/core/hooks", () => ({
+  useWorkspaceId: () => "ws-1",
+}));
+
+vi.mock("@multica/core/projects/queries", () => ({
+  projectListOptions: () => ({}),
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: [] }),
+}));
+
 vi.mock("@multica/ui/components/ui/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <div data-testid="dialog-root">{children}</div>,
   DialogContent: ({ children, className }: { children: React.ReactNode; className?: string }) => (

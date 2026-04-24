@@ -18,6 +18,7 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
     creator_id: "member-1",
     parent_issue_id: null,
     project_id: "project-1",
+    repo_path: null,
     position: 0,
     due_date: null,
     created_at: "2026-04-10T00:00:00Z",

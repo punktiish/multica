@@ -24,6 +24,7 @@ import { createIssueViewStore } from "@multica/core/issues/stores/view-store";
 import { ViewStoreProvider, useViewStore } from "@multica/core/issues/stores/view-store-context";
 import { filterIssues } from "../../issues/utils/filter";
 import { getProjectIssueMetrics } from "./project-issue-metrics";
+import { RepoPicker } from "./repo-picker";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { AppLink, useNavigation } from "../../navigation";
 import { TitleEditor, ContentEditor, type ContentEditorRef } from "../../editor";
@@ -435,6 +436,13 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
                 </div>
               </PopoverContent>
             </Popover>
+          </PropRow>
+          <PropRow label="Repository">
+            <RepoPicker
+              repoPath={project.repo_path ?? null}
+              repos={workspace?.repos ?? []}
+              onUpdate={(u) => handleUpdateField(u as Parameters<typeof handleUpdateField>[0])}
+            />
           </PropRow>
         </div>}
       </div>

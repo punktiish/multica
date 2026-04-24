@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "../navigation";
+import { useWorkspaceId } from "@multica/core/hooks";
 import { Check, ChevronRight, Maximize2, Minimize2, X as XIcon } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import { toast } from "sonner";
@@ -17,6 +19,8 @@ import { ContentEditor, type ContentEditorRef, TitleEditor, useFileDropZone, Fil
 import { StatusIcon, StatusPicker, PriorityPicker, AssigneePicker, DueDatePicker } from "../issues/components";
 import { BacklogAgentHintContent } from "../issues/components/backlog-agent-hint-dialog";
 import { ProjectPicker } from "../projects/components/project-picker";
+import { RepoPicker } from "../projects/components/repo-picker";
+import { projectListOptions } from "@multica/core/projects/queries";
 import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
 import { useIssueDraftStore } from "@multica/core/issues/stores/draft-store";
 import { useCreateIssue, useUpdateIssue } from "@multica/core/issues/mutations";
@@ -75,8 +79,24 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
   const [projectId, setProjectId] = useState<string | undefined>(
     (data?.project_id as string) || undefined,
   );
+  const [repoPath, setRepoPath] = useState<string | undefined>(undefined);
   const [isExpanded, setIsExpanded] = useState(false);
   const [backlogHintIssueId, setBacklogHintIssueId] = useState<string | null>(null);
+
+  // Projects — needed to default repo when project changes.
+  const wsId = useWorkspaceId();
+  const { data: projects = [] } = useQuery(projectListOptions(wsId));
+  const workspace = useCurrentWorkspace();
+
+  // When project changes, default repo to the project's configured repo.
+  useEffect(() => {
+    if (projectId) {
+      const p = projects.find((proj) => proj.id === projectId);
+      setRepoPath(p?.repo_path ?? undefined);
+    } else {
+      setRepoPath(undefined);
+    }
+  }, [projectId, projects]);
 
   // File upload — collect attachment IDs so we can link them after issue creation.
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
@@ -116,6 +136,7 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
         attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
         parent_issue_id: (data?.parent_issue_id as string) || undefined,
         project_id: projectId,
+        repo_path: repoPath,
       });
       clearDraft();
       const shouldShowBacklogHint =
@@ -319,6 +340,15 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
               <ProjectPicker
                 projectId={projectId ?? null}
                 onUpdate={(u) => setProjectId(u.project_id ?? undefined)}
+                triggerRender={<PillButton />}
+                align="start"
+              />
+
+              {/* Repository */}
+              <RepoPicker
+                repoPath={repoPath ?? null}
+                repos={workspace?.repos ?? []}
+                onUpdate={(u) => setRepoPath(u.repo_path ?? undefined)}
                 triggerRender={<PillButton />}
                 align="start"
               />

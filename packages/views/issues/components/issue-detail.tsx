@@ -62,7 +62,8 @@ import { AvatarGroup, AvatarGroupCount } from "@multica/ui/components/ui/avatar"
 import { ActorAvatar } from "../../common/actor-avatar";
 import type { UpdateIssueRequest, IssueStatus, IssuePriority, TimelineEntry, Issue } from "@multica/core/types";
 import { ALL_STATUSES, STATUS_CONFIG, PRIORITY_ORDER, PRIORITY_CONFIG } from "@multica/core/issues/config";
-import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, DueDatePicker, AssigneePicker, canAssignAgent } from ".";
+import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, DueDatePicker, AssigneePicker, canAssignAgent, LabelPicker } from ".";
+import { IssueActionsDropdown, useIssueActions } from "../actions";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { RepoPicker } from "../../projects/components/repo-picker";
 import { CommentCard } from "./comment-card";
@@ -587,6 +588,9 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
           </PropRow>
           <PropRow label="Project">
             <ProjectPicker projectId={issue.project_id} onUpdate={handleUpdateField} />
+          </PropRow>
+          <PropRow label="Labels">
+            <LabelPicker issueId={issue.id} align="start" />
           </PropRow>
           <PropRow label="Repository">
             <RepoPicker

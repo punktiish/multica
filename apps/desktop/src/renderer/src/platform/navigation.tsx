@@ -4,6 +4,7 @@ import {
   NavigationProvider,
   type NavigationAdapter,
 } from "@multica/views/navigation";
+import { useAuthStore } from "@multica/core/auth";
 import { isReservedSlug } from "@multica/core/paths";
 import {
   useTabStore,
@@ -14,10 +15,11 @@ import {
 } from "@/stores/tab-store";
 import { useWindowOverlayStore } from "@/stores/window-overlay-store";
 
-// Public web app URL — injected at build time via .env.production. Falls
-// back to the production host for dev builds so "Copy link" yields a URL
-// that actually points somewhere a teammate can open.
-const APP_URL = import.meta.env.VITE_APP_URL || "https://multica.ai";
+// Public web app URL — injected at build time via .env.production. In dev
+// (no VITE_APP_URL set) falls back to the local web dev server so "Copy
+// link" in a dev build yields a URL that points at the running dev
+// frontend, not the prod host. Matches the fallback used in pages/login.tsx.
+const APP_URL = import.meta.env.VITE_APP_URL || "http://localhost:3000";
 
 /**
  * Extract the leading workspace slug from a path, or null if the path isn't
@@ -38,7 +40,7 @@ function extractWorkspaceSlug(path: string): string | null {
  * Side effect: when opening the new-workspace overlay, the tab router is
  * ALSO reset to "/". Rationale — the only way a push lands on
  * /workspaces/new is that the workspace context is gone (fresh install,
- * delete-last). Leaving the tab parked on a workspace-scoped
+ * delete-last, leave-last). Leaving the tab parked on a workspace-scoped
  * path would keep those components mounted under the overlay; the next
  * render after the list cache updates would then throw (useWorkspaceId
  * etc) because the slug no longer resolves.
@@ -52,6 +54,25 @@ function tryRouteToOverlay(path: string, router?: DataRouter): boolean {
     }
     return true;
   }
+  if (path === "/onboarding") {
+    overlay.open({ type: "onboarding" });
+    if (router && router.state.location.pathname !== "/") {
+      router.navigate("/", { replace: true });
+    }
+    return true;
+  }
+  if (path.startsWith("/invite/")) {
+    let id = "";
+    try {
+      id = decodeURIComponent(path.slice("/invite/".length));
+    } catch {
+      return true;
+    }
+    if (id) {
+      overlay.open({ type: "invite", invitationId: id });
+      return true;
+    }
+  }
   // Any other navigation cancels a live overlay.
   if (overlay.overlay) overlay.close();
   return false;
@@ -62,8 +83,8 @@ function tryRouteToOverlay(path: string, router?: DataRouter): boolean {
  * was delegated to the tab store (caller should NOT proceed).
  *
  * This is the entry point that makes shared code platform-agnostic:
- * sidebar dropdown, cmd+k "switch workspace", and post-delete redirects
- * all call `useNavigation().push(path)` with a
+ * sidebar dropdown, cmd+k "switch workspace", post-delete redirects,
+ * invite-accept flow — they all call `useNavigation().push(path)` with a
  * full workspace URL, and on desktop we translate "target slug differs
  * from active" into "switch the tab-group that's visible in the TabBar".
  */
@@ -93,24 +114,42 @@ export function DesktopNavigationProvider({
   // resolve the active router here only to subscribe once per tab switch.
   const { tabId: activeTabId } = useActiveTabIdentity();
   const router = useActiveTabRouter();
-  const [pathname, setPathname] = useState(
-    router?.state.location.pathname ?? "/",
+  // Mirror the active tab router's full location (pathname + search) so
+  // shell-level consumers of useNavigation() can read URL search params.
+  // Must stay in sync with TabNavigationProvider below; a partial shape
+  // here (just pathname) silently broke focus-mode anchor resolution on
+  // `/inbox?issue=…`.
+  const [location, setLocation] = useState<{ pathname: string; search: string }>(
+    () => ({
+      pathname: router?.state.location.pathname ?? "/",
+      search: router?.state.location.search ?? "",
+    }),
   );
 
   useEffect(() => {
     if (!router) {
-      setPathname("/");
+      setLocation({ pathname: "/", search: "" });
       return;
     }
-    setPathname(router.state.location.pathname);
+    setLocation({
+      pathname: router.state.location.pathname,
+      search: router.state.location.search,
+    });
     return router.subscribe((state) => {
-      setPathname(state.location.pathname);
+      setLocation({
+        pathname: state.location.pathname,
+        search: state.location.search,
+      });
     });
   }, [activeTabId, router]);
 
   const adapter: NavigationAdapter = useMemo(
     () => ({
       push: (path: string) => {
+        if (path === "/login") {
+          useAuthStore.getState().logout();
+          return;
+        }
         const active = currentActiveTab();
         if (tryRouteToOverlay(path, active?.router)) return;
         if (tryRouteToOtherWorkspace(path)) return;
@@ -125,8 +164,8 @@ export function DesktopNavigationProvider({
       back: () => {
         currentActiveTab()?.router.navigate(-1);
       },
-      pathname,
-      searchParams: new URLSearchParams(),
+      pathname: location.pathname,
+      searchParams: new URLSearchParams(location.search),
       openInNewTab: (path: string, title?: string) => {
         // Cross-workspace "open in new tab" switches workspace and opens
         // the path there; same-workspace just adds a tab in the current group.
@@ -142,7 +181,7 @@ export function DesktopNavigationProvider({
       },
       getShareableUrl: (path: string) => `${APP_URL}${path}`,
     }),
-    [pathname],
+    [location],
   );
 
   return <NavigationProvider value={adapter}>{children}</NavigationProvider>;

@@ -318,7 +318,7 @@ export function useRealtimeSync(
       }
     });
 
-    // --- Chat / task events (global, survives ChatWindow unmount) ---
+    // --- Chat / task events (global, survives chat page unmount) ---
     //
     // Single source of truth: the Query cache. No Zustand writes here — the
     // earlier mirror caused a race where the cache and store disagreed

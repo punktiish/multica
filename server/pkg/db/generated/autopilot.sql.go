@@ -100,26 +100,24 @@ func (q *Queries) ClaimDueScheduleTriggers(ctx context.Context) ([]ClaimDueSched
 
 const createAutopilot = `-- name: CreateAutopilot :one
 INSERT INTO autopilot (
-    workspace_id, project_id, title, description, assignee_id,
-    priority, status, execution_mode, issue_title_template,
+    workspace_id, title, description, assignee_id,
+    status, execution_mode, issue_title_template,
     created_by_type, created_by_id
 ) VALUES (
-    $1, $9, $2, $10, $3,
-    $4, $5, $6, $11,
-    $7, $8
-) RETURNING id, workspace_id, project_id, title, description, assignee_id, priority, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at
+    $1, $2, $8, $3,
+    $4, $5, $9,
+    $6, $7
+) RETURNING id, workspace_id, title, description, assignee_id, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at
 `
 
 type CreateAutopilotParams struct {
 	WorkspaceID        pgtype.UUID `json:"workspace_id"`
 	Title              string      `json:"title"`
 	AssigneeID         pgtype.UUID `json:"assignee_id"`
-	Priority           string      `json:"priority"`
 	Status             string      `json:"status"`
 	ExecutionMode      string      `json:"execution_mode"`
 	CreatedByType      string      `json:"created_by_type"`
 	CreatedByID        pgtype.UUID `json:"created_by_id"`
-	ProjectID          pgtype.UUID `json:"project_id"`
 	Description        pgtype.Text `json:"description"`
 	IssueTitleTemplate pgtype.Text `json:"issue_title_template"`
 }
@@ -129,12 +127,10 @@ func (q *Queries) CreateAutopilot(ctx context.Context, arg CreateAutopilotParams
 		arg.WorkspaceID,
 		arg.Title,
 		arg.AssigneeID,
-		arg.Priority,
 		arg.Status,
 		arg.ExecutionMode,
 		arg.CreatedByType,
 		arg.CreatedByID,
-		arg.ProjectID,
 		arg.Description,
 		arg.IssueTitleTemplate,
 	)
@@ -142,11 +138,9 @@ func (q *Queries) CreateAutopilot(ctx context.Context, arg CreateAutopilotParams
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.ProjectID,
 		&i.Title,
 		&i.Description,
 		&i.AssigneeID,
-		&i.Priority,
 		&i.Status,
 		&i.ExecutionMode,
 		&i.IssueTitleTemplate,
@@ -337,7 +331,7 @@ func (q *Queries) FailAutopilotRunsByIssue(ctx context.Context, issueID pgtype.U
 }
 
 const getAutopilot = `-- name: GetAutopilot :one
-SELECT id, workspace_id, project_id, title, description, assignee_id, priority, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at FROM autopilot
+SELECT id, workspace_id, title, description, assignee_id, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at FROM autopilot
 WHERE id = $1
 `
 
@@ -347,11 +341,9 @@ func (q *Queries) GetAutopilot(ctx context.Context, id pgtype.UUID) (Autopilot, 
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.ProjectID,
 		&i.Title,
 		&i.Description,
 		&i.AssigneeID,
-		&i.Priority,
 		&i.Status,
 		&i.ExecutionMode,
 		&i.IssueTitleTemplate,
@@ -365,7 +357,7 @@ func (q *Queries) GetAutopilot(ctx context.Context, id pgtype.UUID) (Autopilot, 
 }
 
 const getAutopilotInWorkspace = `-- name: GetAutopilotInWorkspace :one
-SELECT id, workspace_id, project_id, title, description, assignee_id, priority, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at FROM autopilot
+SELECT id, workspace_id, title, description, assignee_id, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at FROM autopilot
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -380,11 +372,9 @@ func (q *Queries) GetAutopilotInWorkspace(ctx context.Context, arg GetAutopilotI
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.ProjectID,
 		&i.Title,
 		&i.Description,
 		&i.AssigneeID,
-		&i.Priority,
 		&i.Status,
 		&i.ExecutionMode,
 		&i.IssueTitleTemplate,
@@ -571,7 +561,7 @@ func (q *Queries) ListAutopilotTriggers(ctx context.Context, autopilotID pgtype.
 
 const listAutopilots = `-- name: ListAutopilots :many
 
-SELECT id, workspace_id, project_id, title, description, assignee_id, priority, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at FROM autopilot
+SELECT id, workspace_id, title, description, assignee_id, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at FROM autopilot
 WHERE workspace_id = $1
   AND ($2::text IS NULL OR status = $2)
 ORDER BY created_at DESC
@@ -597,11 +587,9 @@ func (q *Queries) ListAutopilots(ctx context.Context, arg ListAutopilotsParams) 
 		if err := rows.Scan(
 			&i.ID,
 			&i.WorkspaceID,
-			&i.ProjectID,
 			&i.Title,
 			&i.Description,
 			&i.AssigneeID,
-			&i.Priority,
 			&i.Status,
 			&i.ExecutionMode,
 			&i.IssueTitleTemplate,
@@ -694,14 +682,12 @@ UPDATE autopilot SET
     title = COALESCE($2, title),
     description = COALESCE($3, description),
     assignee_id = COALESCE($4::uuid, assignee_id),
-    project_id = $5,
-    priority = COALESCE($6, priority),
-    status = COALESCE($7, status),
-    execution_mode = COALESCE($8, execution_mode),
-    issue_title_template = $9,
+    status = COALESCE($5, status),
+    execution_mode = COALESCE($6, execution_mode),
+    issue_title_template = $7,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, project_id, title, description, assignee_id, priority, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at
+RETURNING id, workspace_id, title, description, assignee_id, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at
 `
 
 type UpdateAutopilotParams struct {
@@ -709,8 +695,6 @@ type UpdateAutopilotParams struct {
 	Title              pgtype.Text `json:"title"`
 	Description        pgtype.Text `json:"description"`
 	AssigneeID         pgtype.UUID `json:"assignee_id"`
-	ProjectID          pgtype.UUID `json:"project_id"`
-	Priority           pgtype.Text `json:"priority"`
 	Status             pgtype.Text `json:"status"`
 	ExecutionMode      pgtype.Text `json:"execution_mode"`
 	IssueTitleTemplate pgtype.Text `json:"issue_title_template"`
@@ -722,8 +706,6 @@ func (q *Queries) UpdateAutopilot(ctx context.Context, arg UpdateAutopilotParams
 		arg.Title,
 		arg.Description,
 		arg.AssigneeID,
-		arg.ProjectID,
-		arg.Priority,
 		arg.Status,
 		arg.ExecutionMode,
 		arg.IssueTitleTemplate,
@@ -732,11 +714,9 @@ func (q *Queries) UpdateAutopilot(ctx context.Context, arg UpdateAutopilotParams
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
-		&i.ProjectID,
 		&i.Title,
 		&i.Description,
 		&i.AssigneeID,
-		&i.Priority,
 		&i.Status,
 		&i.ExecutionMode,
 		&i.IssueTitleTemplate,

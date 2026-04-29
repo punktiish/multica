@@ -4,7 +4,6 @@ import {
   NavigationProvider,
   type NavigationAdapter,
 } from "@multica/views/navigation";
-import { useAuthStore } from "@multica/core/auth";
 import { isReservedSlug } from "@multica/core/paths";
 import {
   useTabStore,
@@ -54,25 +53,7 @@ function tryRouteToOverlay(path: string, router?: DataRouter): boolean {
     }
     return true;
   }
-  if (path === "/onboarding") {
-    overlay.open({ type: "onboarding" });
-    if (router && router.state.location.pathname !== "/") {
-      router.navigate("/", { replace: true });
-    }
-    return true;
-  }
-  if (path.startsWith("/invite/")) {
-    let id = "";
-    try {
-      id = decodeURIComponent(path.slice("/invite/".length));
-    } catch {
-      return true;
-    }
-    if (id) {
-      overlay.open({ type: "invite", invitationId: id });
-      return true;
-    }
-  }
+
   // Any other navigation cancels a live overlay.
   if (overlay.overlay) overlay.close();
   return false;
@@ -146,10 +127,6 @@ export function DesktopNavigationProvider({
   const adapter: NavigationAdapter = useMemo(
     () => ({
       push: (path: string) => {
-        if (path === "/login") {
-          useAuthStore.getState().logout();
-          return;
-        }
         const active = currentActiveTab();
         if (tryRouteToOverlay(path, active?.router)) return;
         if (tryRouteToOtherWorkspace(path)) return;

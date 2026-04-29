@@ -20,6 +20,8 @@ export interface IssueReaction {
   created_at: string;
 }
 
+import type { Label } from "./label";
+
 export interface Issue {
   id: string;
   workspace_id: string;
@@ -39,6 +41,7 @@ export interface Issue {
   position: number;
   due_date: string | null;
   reactions?: IssueReaction[];
+  labels?: Label[];
   created_at: string;
   updated_at: string;
 }

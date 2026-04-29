@@ -12,7 +12,6 @@ import {
 import { ModalRegistry } from "@multica/views/modals/registry";
 import { AppSidebar } from "@multica/views/layout";
 import { SearchCommand, SearchTrigger } from "@multica/views/search";
-import { StarterContentPrompt } from "@multica/views/onboarding";
 import { WorkspaceSlugProvider } from "@multica/core/paths";
 import { getCurrentSlug, subscribeToCurrentSlug } from "@multica/core/platform";
 import { DesktopNavigationProvider } from "@/platform/navigation";

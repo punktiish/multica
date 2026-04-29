@@ -2,7 +2,15 @@
 
 import { create } from "zustand";
 
-type ModalType = "create-workspace" | "create-issue" | "create-project" | null;
+type ModalType =
+  | "create-workspace"
+  | "create-issue"
+  | "create-project"
+  | "issue-set-parent"
+  | "issue-add-child"
+  | "issue-delete-confirm"
+  | "issue-backlog-agent-hint"
+  | null;
 
 interface ModalStore {
   modal: ModalType;

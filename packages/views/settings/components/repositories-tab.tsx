@@ -5,12 +5,13 @@ import { Save, Plus, Trash2 } from "lucide-react";
 import { Input } from "@multica/ui/components/ui/input";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
+import { NativeSelect, NativeSelectOption } from "@multica/ui/components/ui/native-select";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { workspaceKeys } from "@multica/core/workspace/queries";
 import { api } from "@multica/core/api";
-import type { Workspace, WorkspaceRepo } from "@multica/core/types";
+import type { Workspace, WorkspaceRepo, RepoType } from "@multica/core/types";
 
 export function RepositoriesTab() {
   const workspace = useCurrentWorkspace();
@@ -40,7 +41,7 @@ export function RepositoriesTab() {
   };
 
   const handleAddRepo = () => {
-    setRepos([...repos, { path: "", description: "" }]);
+    setRepos([...repos, { type: "local", path: "", description: "" }]);
   };
 
   const handleRemoveRepo = (index: number) => {
@@ -61,19 +62,29 @@ export function RepositoriesTab() {
         <Card>
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              Local code repositories available to agents. Remote Git URLs are not supported in solo local mode.
+              Code repositories associated with this workspace. Agents use these to work on code. Supports local filesystem paths and remote URLs.
             </p>
 
             {repos.map((repo, index) => (
               <div key={index} className="flex gap-2">
                 <div className="flex-1 space-y-1.5">
-                  <Input
-                    type="text"
-                    value={repo.path}
-                    onChange={(e) => handleRepoChange(index, "path", e.target.value)}
-                    placeholder="/home/user/my-repo"
-                    className="text-sm"
-                  />
+                  <div className="flex gap-2">
+                    <NativeSelect
+                      size="sm"
+                      value={repo.type || "local"}
+                      onChange={(e) => handleRepoChange(index, "type", e.target.value as RepoType)}
+                    >
+                      <NativeSelectOption value="local">Local Path</NativeSelectOption>
+                      <NativeSelectOption value="remote">Remote URL</NativeSelectOption>
+                    </NativeSelect>
+                    <Input
+                      type={repo.type === "local" ? "text" : "url"}
+                      value={repo.path}
+                      onChange={(e) => handleRepoChange(index, "path", e.target.value)}
+                      placeholder={repo.type === "local" ? "/home/user/my-repo" : "https://github.com/org/repo"}
+                      className="flex-1 text-sm"
+                    />
+                  </div>
                   <Input
                     type="text"
                     value={repo.description}

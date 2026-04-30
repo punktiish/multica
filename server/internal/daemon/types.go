@@ -18,8 +18,8 @@ type Runtime struct {
 
 // RepoData holds repository information from the workspace.
 type RepoData struct {
-	Type        string `json:"-"`
-	URL         string `json:"path"` // local filesystem path
+	Type        string `json:"type"`        // "remote" or "local"
+	URL         string `json:"path"`        // local filesystem path or remote URL
 	Description string `json:"description"`
 }
 

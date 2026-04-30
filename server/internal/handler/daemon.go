@@ -582,8 +582,8 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		if issue, err := h.Queries.GetIssue(r.Context(), task.IssueID); err == nil {
 			resp.WorkspaceID = uuidToString(issue.WorkspaceID)
 			if ws, err := h.Queries.GetWorkspace(r.Context(), issue.WorkspaceID); err == nil && ws.Repos != nil {
-				var repos []RepoData
-				if json.Unmarshal(ws.Repos, &repos) == nil && len(repos) > 0 {
+				repos := parseWorkspaceRepos(ws.Repos)
+				if len(repos) > 0 {
 					resp.Repos = resolveReposForTask(r.Context(), h.Queries, issue, repos)
 				}
 			}

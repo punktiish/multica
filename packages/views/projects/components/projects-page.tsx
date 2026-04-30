@@ -12,7 +12,7 @@ import {
   PROJECT_PRIORITY_ORDER,
 } from "@multica/core/projects/config";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { useWorkspacePaths } from "@multica/core/paths";
+import { useWorkspacePaths, useCurrentWorkspace } from "@multica/core/paths";
 import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
 import { useModalStore } from "@multica/core/modals";
 import { AppLink } from "../../navigation";
@@ -36,6 +36,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/
 import type { Project, ProjectStatus, ProjectPriority, UpdateProjectRequest } from "@multica/core/types";
 import { PageHeader } from "../../layout/page-header";
 import { PriorityIcon } from "../../issues/components/priority-icon";
+import { RepoPicker } from "./repo-picker";
 
 function formatRelativeDate(date: string): string {
   const diff = Date.now() - new Date(date).getTime();
@@ -47,7 +48,7 @@ function formatRelativeDate(date: string): string {
   return `${months}mo ago`;
 }
 
-function ProjectRow({ project }: { project: Project }) {
+function ProjectRow({ project, repos }: { project: Project; repos: { path: string; description: string }[] }) {
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
   const statusCfg = PROJECT_STATUS_CONFIG[project.status];
@@ -144,6 +145,16 @@ function ProjectRow({ project }: { project: Project }) {
         )}
       </span>
 
+      {/* Repository */}
+      <span className="flex w-32 items-center justify-center shrink-0">
+        <RepoPicker
+          repoPath={project.repo_path ?? null}
+          repos={repos}
+          onUpdate={(u) => handleUpdate(u as UpdateProjectRequest)}
+          align="center"
+        />
+      </span>
+
       {/* Lead — popover */}
       <Popover open={leadOpen} onOpenChange={(v) => { setLeadOpen(v); if (!v) setLeadFilter(""); }}>
         <PopoverTrigger
@@ -229,8 +240,10 @@ function ProjectRow({ project }: { project: Project }) {
 
 export function ProjectsPage() {
   const wsId = useWorkspaceId();
+  const workspace = useCurrentWorkspace();
   const { data: projects = [], isLoading } = useQuery(projectListOptions(wsId));
   const openCreateProject = () => useModalStore.getState().open("create-project");
+  const repos = workspace?.repos ?? [];
 
   return (
     <div className="flex h-full flex-col">
@@ -256,6 +269,7 @@ export function ProjectsPage() {
             <div className="sticky top-0 z-[1] flex h-8 items-center gap-2 border-b bg-muted/30 px-5">
               <span className="shrink-0 w-[24px]" />
               <Skeleton className="h-3 w-12 flex-1 max-w-[48px]" />
+              <Skeleton className="h-3 w-12 shrink-0" />
               <Skeleton className="h-3 w-12 shrink-0" />
               <Skeleton className="h-3 w-12 shrink-0" />
               <Skeleton className="h-3 w-12 shrink-0" />
@@ -286,12 +300,13 @@ export function ProjectsPage() {
               <span className="w-24 text-center shrink-0">Priority</span>
               <span className="w-28 text-center shrink-0">Status</span>
               <span className="w-24 text-center shrink-0">Progress</span>
+              <span className="w-32 text-center shrink-0">Repository</span>
               <span className="w-10 text-center shrink-0">Lead</span>
               <span className="w-20 text-right shrink-0">Created</span>
             </div>
             {/* Rows */}
             {projects.map((project) => (
-              <ProjectRow key={project.id} project={project} />
+              <ProjectRow key={project.id} project={project} repos={repos} />
             ))}
           </>
         )}

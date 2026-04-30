@@ -1106,3 +1106,204 @@ func TestClaimTask_AutopilotRunOnly_PopulatesWorkspaceID(t *testing.T) {
 		t.Fatalf("expected workspace_id %q, got %q", testWorkspaceID, resp.Task.WorkspaceID)
 	}
 }
+
+func TestResolveReposForTask_IssueRepoPathOverridesProject(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	setHandlerTestWorkspaceRepos(t, []map[string]string{
+		{"url": "https://github.com/org/repo-a", "description": "Repo A"},
+		{"url": "https://github.com/org/repo-b", "description": "Repo B"},
+	})
+
+	// Create project with repo-a
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
+		"title":     "ResolveRepos project",
+		"repo_path": "https://github.com/org/repo-a",
+	})
+	testHandler.CreateProject(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateProject: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var project ProjectResponse
+	json.NewDecoder(w.Body).Decode(&project)
+	defer func() {
+		r := newRequest("DELETE", "/api/projects/"+project.ID, nil)
+		r = withURLParam(r, "id", project.ID)
+		testHandler.DeleteProject(httptest.NewRecorder(), r)
+	}()
+
+	// Create issue under project with repo-b
+	w = httptest.NewRecorder()
+	req = newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":      "ResolveRepos issue",
+		"project_id": project.ID,
+		"repo_path":  "https://github.com/org/repo-b",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var issue IssueResponse
+	json.NewDecoder(w.Body).Decode(&issue)
+	defer func() {
+		r := newRequest("DELETE", "/api/issues/"+issue.ID, nil)
+		r = withURLParam(r, "id", issue.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), r)
+	}()
+
+	dbIssue, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(issue.ID))
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+
+	workspaceRepos := []RepoData{
+		{URL: "https://github.com/org/repo-a", Description: "Repo A"},
+		{URL: "https://github.com/org/repo-b", Description: "Repo B"},
+	}
+	repos := resolveReposForTask(context.Background(), testHandler.Queries, dbIssue, workspaceRepos)
+	if len(repos) != 1 || repos[0].URL != "https://github.com/org/repo-b" {
+		t.Fatalf("expected repo-b, got %v", repos)
+	}
+}
+
+func TestResolveReposForTask_ProjectRepoPathFallback(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	setHandlerTestWorkspaceRepos(t, []map[string]string{
+		{"url": "https://github.com/org/repo-a", "description": "Repo A"},
+		{"url": "https://github.com/org/repo-b", "description": "Repo B"},
+	})
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
+		"title":     "Fallback project",
+		"repo_path": "https://github.com/org/repo-a",
+	})
+	testHandler.CreateProject(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateProject: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var project ProjectResponse
+	json.NewDecoder(w.Body).Decode(&project)
+	defer func() {
+		r := newRequest("DELETE", "/api/projects/"+project.ID, nil)
+		r = withURLParam(r, "id", project.ID)
+		testHandler.DeleteProject(httptest.NewRecorder(), r)
+	}()
+
+	// Create issue without repo_path
+	w = httptest.NewRecorder()
+	req = newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":      "Fallback issue",
+		"project_id": project.ID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var issue IssueResponse
+	json.NewDecoder(w.Body).Decode(&issue)
+	defer func() {
+		r := newRequest("DELETE", "/api/issues/"+issue.ID, nil)
+		r = withURLParam(r, "id", issue.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), r)
+	}()
+
+	dbIssue, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(issue.ID))
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+
+	workspaceRepos := []RepoData{
+		{URL: "https://github.com/org/repo-a", Description: "Repo A"},
+		{URL: "https://github.com/org/repo-b", Description: "Repo B"},
+	}
+	repos := resolveReposForTask(context.Background(), testHandler.Queries, dbIssue, workspaceRepos)
+	if len(repos) != 1 || repos[0].URL != "https://github.com/org/repo-a" {
+		t.Fatalf("expected repo-a from project fallback, got %v", repos)
+	}
+}
+
+func TestResolveReposForTask_NoConfigFallbackToAll(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	setHandlerTestWorkspaceRepos(t, []map[string]string{
+		{"url": "https://github.com/org/repo-a", "description": "Repo A"},
+		{"url": "https://github.com/org/repo-b", "description": "Repo B"},
+	})
+
+	// Create issue without project or repo_path
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "No repo config issue",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var issue IssueResponse
+	json.NewDecoder(w.Body).Decode(&issue)
+	defer func() {
+		r := newRequest("DELETE", "/api/issues/"+issue.ID, nil)
+		r = withURLParam(r, "id", issue.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), r)
+	}()
+
+	dbIssue, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(issue.ID))
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+
+	workspaceRepos := []RepoData{
+		{URL: "https://github.com/org/repo-a", Description: "Repo A"},
+		{URL: "https://github.com/org/repo-b", Description: "Repo B"},
+	}
+	repos := resolveReposForTask(context.Background(), testHandler.Queries, dbIssue, workspaceRepos)
+	if len(repos) != 2 {
+		t.Fatalf("expected all 2 workspace repos, got %d", len(repos))
+	}
+}
+
+func TestResolveReposForTask_StalePathFallsBackToAll(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	setHandlerTestWorkspaceRepos(t, []map[string]string{
+		{"url": "https://github.com/org/repo-a", "description": "Repo A"},
+	})
+
+	// Create issue with repo_path that is NOT in workspace repos
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":     "Stale repo issue",
+		"repo_path": "https://github.com/org/removed-repo",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var issue IssueResponse
+	json.NewDecoder(w.Body).Decode(&issue)
+	defer func() {
+		r := newRequest("DELETE", "/api/issues/"+issue.ID, nil)
+		r = withURLParam(r, "id", issue.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), r)
+	}()
+
+	dbIssue, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(issue.ID))
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+
+	workspaceRepos := []RepoData{
+		{URL: "https://github.com/org/repo-a", Description: "Repo A"},
+	}
+	repos := resolveReposForTask(context.Background(), testHandler.Queries, dbIssue, workspaceRepos)
+	if len(repos) != 1 || repos[0].URL != "https://github.com/org/repo-a" {
+		t.Fatalf("expected fallback to all workspace repos, got %v", repos)
+	}
+}

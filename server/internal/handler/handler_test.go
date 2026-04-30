@@ -293,6 +293,22 @@ func TestIssueCRUD(t *testing.T) {
 		t.Fatalf("UpdateIssue: priority should be preserved, got '%s'", updated.Priority)
 	}
 
+	// Update repo_path
+	repoPath := "github.com/org/repo"
+	w = httptest.NewRecorder()
+	req = newRequest("PUT", "/api/issues/"+issueID, map[string]any{
+		"repo_path": repoPath,
+	})
+	req = withURLParam(req, "id", issueID)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue repo_path: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	json.NewDecoder(w.Body).Decode(&updated)
+	if updated.RepoPath == nil || *updated.RepoPath != repoPath {
+		t.Fatalf("UpdateIssue: expected repo_path %q, got %v", repoPath, updated.RepoPath)
+	}
+
 	// List
 	w = httptest.NewRecorder()
 	req = newRequest("GET", "/api/issues?workspace_id="+testWorkspaceID, nil)
@@ -324,6 +340,115 @@ func TestIssueCRUD(t *testing.T) {
 	testHandler.GetIssue(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("GetIssue after delete: expected 404, got %d", w.Code)
+	}
+}
+
+func TestProjectCRUD(t *testing.T) {
+	// Create
+	w := httptest.NewRecorder()
+	repoPath := "github.com/org/project-repo"
+	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
+		"title":      "Test project from Go test",
+		"status":     "planned",
+		"priority":   "medium",
+		"repo_path":  repoPath,
+	})
+	testHandler.CreateProject(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateProject: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var created ProjectResponse
+	json.NewDecoder(w.Body).Decode(&created)
+	if created.Title != "Test project from Go test" {
+		t.Fatalf("CreateProject: expected title 'Test project from Go test', got '%s'", created.Title)
+	}
+	if created.Status != "planned" {
+		t.Fatalf("CreateProject: expected status 'planned', got '%s'", created.Status)
+	}
+	if created.RepoPath == nil || *created.RepoPath != repoPath {
+		t.Fatalf("CreateProject: expected repo_path %q, got %v", repoPath, created.RepoPath)
+	}
+	projectID := created.ID
+
+	// Get
+	w = httptest.NewRecorder()
+	req = newRequest("GET", "/api/projects/"+projectID, nil)
+	req = withURLParam(req, "id", projectID)
+	testHandler.GetProject(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GetProject: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var fetched ProjectResponse
+	json.NewDecoder(w.Body).Decode(&fetched)
+	if fetched.ID != projectID {
+		t.Fatalf("GetProject: expected id '%s', got '%s'", projectID, fetched.ID)
+	}
+
+	// Update repo_path
+	newRepo := "github.com/org/new-repo"
+	w = httptest.NewRecorder()
+	req = newRequest("PUT", "/api/projects/"+projectID, map[string]any{
+		"repo_path": newRepo,
+	})
+	req = withURLParam(req, "id", projectID)
+	testHandler.UpdateProject(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateProject repo_path: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var updated ProjectResponse
+	json.NewDecoder(w.Body).Decode(&updated)
+	if updated.RepoPath == nil || *updated.RepoPath != newRepo {
+		t.Fatalf("UpdateProject: expected repo_path %q, got %v", newRepo, updated.RepoPath)
+	}
+	if updated.Title != "Test project from Go test" {
+		t.Fatalf("UpdateProject: title should be preserved, got '%s'", updated.Title)
+	}
+
+	// List
+	w = httptest.NewRecorder()
+	req = newRequest("GET", "/api/projects?workspace_id="+testWorkspaceID, nil)
+	testHandler.ListProjects(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ListProjects: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var listResp map[string]any
+	json.NewDecoder(w.Body).Decode(&listResp)
+	projects := listResp["projects"].([]any)
+	found := false
+	for _, p := range projects {
+		proj := p.(map[string]any)
+		if proj["id"].(string) == projectID {
+			found = true
+			if rp, ok := proj["repo_path"].(string); !ok || rp != newRepo {
+				t.Fatalf("ListProjects: expected repo_path %q, got %v", newRepo, proj["repo_path"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("ListProjects: expected created project in list")
+	}
+
+	// Delete
+	w = httptest.NewRecorder()
+	req = newRequest("DELETE", "/api/projects/"+projectID, nil)
+	req = withURLParam(req, "id", projectID)
+	testHandler.DeleteProject(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("DeleteProject: expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify deleted
+	w = httptest.NewRecorder()
+	req = newRequest("GET", "/api/projects/"+projectID, nil)
+	req = withURLParam(req, "id", projectID)
+	testHandler.GetProject(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("GetProject after delete: expected 404, got %d", w.Code)
 	}
 }
 

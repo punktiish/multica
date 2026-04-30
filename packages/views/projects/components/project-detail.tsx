@@ -241,7 +241,10 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   const handleUpdateField = useCallback(
     (data: Parameters<typeof updateProject.mutate>[0] extends { id: string } & infer R ? R : never) => {
       if (!project) return;
-      updateProject.mutate({ id: project.id, ...data });
+      updateProject.mutate(
+        { id: project.id, ...data },
+        { onError: () => toast.error("Failed to update project") },
+      );
     },
     [project, updateProject],
   );

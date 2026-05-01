@@ -12,7 +12,14 @@
 // keeps self-hosted Docker images from leaking our project key — their
 // backend returns an empty key and this module stays inert.
 
-import posthog from "posthog-js";
+const posthog = {
+  init: (..._args: unknown[]) => {},
+  identify: (..._args: unknown[]) => {},
+  reset: () => {},
+  capture: (..._args: unknown[]) => {},
+  register: (..._args: unknown[]) => {},
+  people: { set: (..._args: unknown[]) => {} },
+};
 
 const SIGNUP_SOURCE_COOKIE = "multica_signup_source";
 // Per-value cap keeps a long utm_content from blowing the budget. We drop

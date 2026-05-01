@@ -94,6 +94,7 @@ export interface ChatState {
    * the preference survives workspace switches and reloads.
    */
   focusMode: boolean;
+  isOpen: boolean;
   /** Raw user-chosen size — no clamp applied. UI layer clamps at render time. */
   chatWidth: number;
   chatHeight: number;

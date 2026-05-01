@@ -12,9 +12,11 @@
  * keep the two in sync when adding a new source or field.
  */
 
-import posthog from "posthog-js";
-
 import { captureEvent, setPersonProperties } from "./index";
+
+const posthog = {
+  capture: (..._args: unknown[]) => {},
+};
 
 /**
  * Where the user clicked a CTA that points at `/download`. Typed union

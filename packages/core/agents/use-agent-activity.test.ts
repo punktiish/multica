@@ -36,7 +36,7 @@ const fullHistoryAgent: Agent = {
   description: "",
   instructions: "",
   avatar_url: null,
-  runtime_mode: "cloud",
+  runtime_mode: "local",
   runtime_config: {},
   custom_env: {},
   custom_args: [],

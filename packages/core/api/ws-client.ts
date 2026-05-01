@@ -17,7 +17,6 @@ export class WSClient {
   private ws: WebSocket | null = null;
   private baseUrl: string;
   private workspaceSlug: string | null = null;
-  private cookieAuth = false;
   private identity: WSClientIdentity | undefined;
   private handlers = new Map<WSEventType, Set<EventHandler>>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -30,13 +29,11 @@ export class WSClient {
     url: string,
     options?: {
       logger?: Logger;
-      cookieAuth?: boolean;
       identity?: WSClientIdentity;
     },
   ) {
     this.baseUrl = url;
     this.logger = options?.logger ?? noopLogger;
-    this.cookieAuth = options?.cookieAuth ?? false;
     this.identity = options?.identity;
   }
 

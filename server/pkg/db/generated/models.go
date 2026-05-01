@@ -364,6 +364,7 @@ type Project struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	Priority    string             `json:"priority"`
+	RepoPath    pgtype.Text        `json:"repo_path"`
 }
 
 type ProjectResource struct {

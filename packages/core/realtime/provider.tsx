@@ -51,7 +51,6 @@ export function WSProvider({
   wsUrl,
   authStore,
   storage,
-  cookieAuth,
   identity,
   onToast,
 }: WSProviderProps) {
@@ -81,7 +80,6 @@ export function WSProvider({
 
     const ws = new WSClient(wsUrl, {
       logger: createLogger("ws"),
-      cookieAuth,
       identity:
         identityPlatform || identityVersion || identityOS
           ? {
@@ -104,7 +102,6 @@ export function WSProvider({
     wsSlug,
     wsUrl,
     storage,
-    cookieAuth,
     identityPlatform,
     identityVersion,
     identityOS,

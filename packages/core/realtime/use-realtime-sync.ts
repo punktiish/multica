@@ -37,7 +37,6 @@ import type {
   MemberRemovedPayload,
   IssueUpdatedPayload,
   IssueCreatedPayload,
-  IssueDeletedPayload,
   IssueLabelsChangedPayload,
   InboxNewPayload,
   CommentCreatedPayload,
@@ -58,7 +57,6 @@ import type {
   TaskCancelledPayload,
   ChatDonePayload,
   ChatPendingTask,
-  InvitationCreatedPayload,
 } from "../types";
 
 const chatWsLogger = createLogger("chat.ws");
@@ -212,7 +210,7 @@ export function useRealtimeSync(
     });
 
     const unsubIssueDeleted = ws.on("issue:deleted", (p) => {
-      const { issue_id } = p as IssueDeletedPayload;
+      const { issue_id } = p as { issue_id: string };
       if (!issue_id) return;
       const wsId = getCurrentWsId();
       if (wsId) {

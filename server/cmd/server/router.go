@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -15,16 +14,16 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/multica-ai/multica/server/internal/analytics"
-	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/solo"
-	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/storage"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -80,7 +79,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	if err != nil {
 		panic(err)
 	}
-	emailSvc := service.NewEmailService()
 	daemonHub := opts.DaemonHub
 	if daemonHub == nil {
 		daemonHub = daemonws.NewHub()
@@ -91,14 +89,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		store = local
 	}
 
-	cfSigner := auth.NewCloudFrontSignerFromEnv()
-
 	signupConfig := handler.Config{
-		AllowSignup:         os.Getenv("ALLOW_SIGNUP") != "false",
-		AllowedEmails:       splitAndTrim(os.Getenv("ALLOWED_EMAILS")),
-		AllowedEmailDomains: splitAndTrim(os.Getenv("ALLOWED_EMAIL_DOMAINS")),
+		AllowSignup: os.Getenv("ALLOW_SIGNUP") != "false",
 	}
-	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
+	h := handler.New(queries, pool, hub, bus, store, analyticsClient, signupConfig, daemonHub)
 	if opts.DaemonWakeup != nil {
 		h.TaskService.Wakeup = opts.DaemonWakeup
 	}
@@ -106,11 +100,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		h.LocalSkillListStore = handler.NewRedisLocalSkillListStore(rdb)
 		h.LocalSkillImportStore = handler.NewRedisLocalSkillImportStore(rdb)
 	}
-	patCache := auth.NewPATCache(rdb)
-	daemonTokenCache := auth.NewDaemonTokenCache(rdb)
-	h.PATCache = patCache
-	h.DaemonTokenCache = daemonTokenCache
-
 	h.TaskService.EmptyClaim = service.NewEmptyClaimCache(rdb)
 
 	daemonHub.SetHeartbeatHandler(h.HandleDaemonWSHeartbeat)
@@ -158,7 +147,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 	// WebSocket
 	mc := &membershipChecker{queries: queries}
-	pr := &patResolver{queries: queries, cache: patCache}
 	slugResolver := realtime.SlugResolver(func(ctx context.Context, slug string) (string, error) {
 		ws, err := queries.GetWorkspaceBySlug(ctx, slug)
 		if err != nil {
@@ -167,7 +155,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		return util.UUIDToString(ws.ID), nil
 	})
 	r.With(middleware.LocalUser(identity.UserID)).Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		realtime.HandleWebSocket(hub, mc, slugResolver, w, r)
+		realtime.HandleWebSocket(hub, mc, nil, slugResolver, w, r)
 	})
 
 	// Local file serving (when using local storage)
@@ -468,37 +456,6 @@ func (mc *membershipChecker) IsMember(ctx context.Context, userID, workspaceID s
 		WorkspaceID: parseUUID(workspaceID),
 	})
 	return err == nil
-}
-
-// patResolver implements realtime.PATResolver using database queries.
-type patResolver struct {
-	queries *db.Queries
-	cache   *auth.PATCache
-}
-
-func (pr *patResolver) ResolveToken(ctx context.Context, token string) (string, bool) {
-	hash := auth.HashToken(token)
-
-	if userID, ok := pr.cache.Get(ctx, hash); ok {
-		return userID, true
-	}
-
-	pat, err := pr.queries.GetPersonalAccessTokenByHash(ctx, hash)
-	if err != nil {
-		return "", false
-	}
-
-	userID := util.UUIDToString(pat.UserID)
-
-	var expiresAt time.Time
-	if pat.ExpiresAt.Valid {
-		expiresAt = pat.ExpiresAt.Time
-	}
-	pr.cache.Set(ctx, hash, userID, auth.TTLForExpiry(time.Now(), expiresAt))
-
-	go pr.queries.UpdatePersonalAccessTokenLastUsed(context.Background(), pat.ID)
-
-	return userID, true
 }
 
 func parseUUID(s string) pgtype.UUID {

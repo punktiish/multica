@@ -33,7 +33,7 @@ describe("WSClient", () => {
     const ws = new WSClient("ws://example.test/ws", {
       identity: { platform: "desktop", version: "1.2.3", os: "macos" },
     });
-    ws.setAuth("tok", "acme");
+    ws.setWorkspace("acme");
     ws.connect();
 
     const url = new URL(FakeWebSocket.lastUrl!);
@@ -41,14 +41,10 @@ describe("WSClient", () => {
     expect(url.searchParams.get("client_platform")).toBe("desktop");
     expect(url.searchParams.get("client_version")).toBe("1.2.3");
     expect(url.searchParams.get("client_os")).toBe("macos");
-    // Token must never appear in the URL — it is delivered as the first
-    // WS message in token mode.
-    expect(url.searchParams.has("token")).toBe(false);
   });
 
   it("omits client_* params when identity is not configured", () => {
     const ws = new WSClient("ws://example.test/ws");
-    ws.setAuth("tok", "acme");
     ws.connect();
 
     const url = new URL(FakeWebSocket.lastUrl!);
@@ -61,7 +57,6 @@ describe("WSClient", () => {
     const ws = new WSClient("ws://example.test/ws", {
       identity: { platform: "cli" },
     });
-    ws.setAuth("tok", "acme");
     ws.connect();
 
     const url = new URL(FakeWebSocket.lastUrl!);

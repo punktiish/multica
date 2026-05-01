@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -563,64 +564,6 @@ func (h *Hub) Snapshot() map[string]any {
 	}
 }
 
-// authenticateToken validates a JWT or PAT string and returns the user ID.
-func authenticateToken(tokenStr string, pr PATResolver, ctx context.Context) (string, string) {
-	if strings.HasPrefix(tokenStr, "mul_") {
-		if pr == nil {
-			return "", `{"error":"invalid token"}`
-		}
-		uid, ok := pr.ResolveToken(ctx, tokenStr)
-		if !ok {
-			return "", `{"error":"invalid token"}`
-		}
-		return uid, ""
-	}
-
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (any, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return auth.JWTSecret(), nil
-	})
-	if err != nil || !token.Valid {
-		return "", `{"error":"invalid token"}`
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return "", `{"error":"invalid claims"}`
-	}
-
-	uid, ok := claims["sub"].(string)
-	if !ok || strings.TrimSpace(uid) == "" {
-		return "", `{"error":"invalid claims"}`
-	}
-	return uid, ""
-}
-
-// firstMessageAuth reads the first WebSocket message expecting an auth payload.
-func firstMessageAuth(conn *websocket.Conn) (string, string) {
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	defer conn.SetReadDeadline(time.Time{})
-
-	_, raw, err := conn.ReadMessage()
-	if err != nil {
-		return "", `{"error":"auth timeout or read error"}`
-	}
-
-	var msg struct {
-		Type    string `json:"type"`
-		Payload struct {
-			Token string `json:"token"`
-		} `json:"payload"`
-	}
-	if err := json.Unmarshal(raw, &msg); err != nil || msg.Type != "auth" || msg.Payload.Token == "" {
-		return "", `{"error":"expected auth message as first frame"}`
-	}
-
-	return msg.Payload.Token, ""
-}
-
 // HandleWebSocket upgrades an HTTP connection to WebSocket with cookie or
 // first-message auth.
 func HandleWebSocket(hub *Hub, mc MembershipChecker, pr PATResolver, resolveSlug SlugResolver, w http.ResponseWriter, r *http.Request) {
@@ -648,7 +591,6 @@ func HandleWebSocket(hub *Hub, mc MembershipChecker, pr PATResolver, resolveSlug
 	if !mc.IsMember(r.Context(), userID, workspaceID) {
 		http.Error(w, `{"error":"not a member of this workspace"}`, http.StatusForbidden)
 		return
-	}
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)

@@ -905,10 +905,9 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-			}
-		}
+	}
 
-		// Fetch the triggering comment content so the daemon can embed it
+	// Fetch the triggering comment content so the daemon can embed it
 		// directly in the agent prompt (prevents the agent from ignoring comments
 		// when stale output files exist in a reused workdir). Also surface the
 		// comment author's kind and display name so the agent knows whether it
@@ -955,7 +954,6 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	}
 
 	// Chat task: populate workspace/session info from the chat_session table.
 	if task.ChatSessionID.Valid {
@@ -1650,14 +1648,12 @@ func (h *Handler) GetIssueGCCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveReposForTask returns the repos an agent should see for a task.
-// Priority: issue.repo_path > project.repo_path > all workspace repos.
+// Priority: project.repo_path > all workspace repos.
 // If the configured path does not exist in the workspace repo list, it falls
 // back to all repos (prevents arbitrary path injection).
 func resolveReposForTask(ctx context.Context, q *db.Queries, issue db.Issue, workspaceRepos []RepoData) []RepoData {
 	targetPath := ""
-	if issue.RepoPath.Valid && issue.RepoPath.String != "" {
-		targetPath = issue.RepoPath.String
-	} else if issue.ProjectID.Valid {
+	if issue.ProjectID.Valid {
 		if project, err := q.GetProject(ctx, issue.ProjectID); err == nil && project.RepoPath.Valid && project.RepoPath.String != "" {
 			targetPath = project.RepoPath.String
 		}

@@ -22,8 +22,6 @@ export interface IssueReaction {
   created_at: string;
 }
 
-import type { Label } from "./label";
-
 export interface Issue {
   id: string;
   workspace_id: string;

@@ -99,8 +99,6 @@ export function AuthInitializer({
       return;
     }
 
-    api.setToken(token);
-
     Promise.all([api.getMe(), api.listWorkspaces()])
       .then(([user, wsList]) => {
         onAuthSuccess(user);
@@ -108,7 +106,6 @@ export function AuthInitializer({
       })
       .catch((err) => {
         logger.error("auth init failed", err);
-        api.setToken(null);
         setCurrentWorkspace(null, null);
         storage.removeItem("multica_token");
         onAuthFailure();

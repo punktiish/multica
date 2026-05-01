@@ -5,15 +5,21 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
+	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
+	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/solo"
@@ -52,11 +58,32 @@ func allowedOrigins() []string {
 }
 
 // NewRouter creates the fully-configured Chi router with all middleware and routes.
-func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Router {
+// rdb is optional: when non-nil the runtime local-skill request stores are
+// swapped for Redis-backed implementations so multiple API nodes share the
+// same pending queue (required for multi-node prod). This should be a request
+// path Redis client, not the realtime relay's blocking read client. A nil rdb
+// keeps the default in-memory stores which are fine for single-node dev and
+// tests.
+func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client) chi.Router {
+	return NewRouterWithOptions(pool, hub, bus, analyticsClient, rdb, RouterOptions{})
+}
+
+type RouterOptions struct {
+	HTTPMetrics  *obsmetrics.HTTPMetrics
+	DaemonHub    *daemonws.Hub
+	DaemonWakeup service.TaskWakeupNotifier
+}
+
+func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analyticsClient analytics.Client, rdb *redis.Client, opts RouterOptions) chi.Router {
 	queries := db.New(pool)
 	identity, err := solo.Ensure(context.Background(), pool)
 	if err != nil {
 		panic(err)
+	}
+	emailSvc := service.NewEmailService()
+	daemonHub := opts.DaemonHub
+	if daemonHub == nil {
+		daemonHub = daemonws.NewHub()
 	}
 
 	var store storage.Storage
@@ -64,13 +91,40 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		store = local
 	}
 
-	h := handler.New(queries, pool, hub, bus, store)
+	cfSigner := auth.NewCloudFrontSignerFromEnv()
+
+	signupConfig := handler.Config{
+		AllowSignup:         os.Getenv("ALLOW_SIGNUP") != "false",
+		AllowedEmails:       splitAndTrim(os.Getenv("ALLOWED_EMAILS")),
+		AllowedEmailDomains: splitAndTrim(os.Getenv("ALLOWED_EMAIL_DOMAINS")),
+	}
+	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
+	if opts.DaemonWakeup != nil {
+		h.TaskService.Wakeup = opts.DaemonWakeup
+	}
+	if rdb != nil {
+		h.LocalSkillListStore = handler.NewRedisLocalSkillListStore(rdb)
+		h.LocalSkillImportStore = handler.NewRedisLocalSkillImportStore(rdb)
+	}
+	patCache := auth.NewPATCache(rdb)
+	daemonTokenCache := auth.NewDaemonTokenCache(rdb)
+	h.PATCache = patCache
+	h.DaemonTokenCache = daemonTokenCache
+
+	h.TaskService.EmptyClaim = service.NewEmptyClaimCache(rdb)
+
+	daemonHub.SetHeartbeatHandler(h.HandleDaemonWSHeartbeat)
+	health := newServerHealth(pool)
 
 	r := chi.NewRouter()
 
 	// Global middleware
 	r.Use(chimw.RequestID)
+	r.Use(middleware.ClientMetadata)
 	r.Use(middleware.RequestLogger)
+	if opts.HTTPMetrics != nil {
+		r.Use(opts.HTTPMetrics.Middleware)
+	}
 	r.Use(chimw.Recoverer)
 	r.Use(middleware.ContentSecurityPolicy)
 	origins := allowedOrigins()
@@ -81,19 +135,30 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   origins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Workspace-ID", "X-Workspace-Slug", "X-Request-ID", "X-Agent-ID", "X-Task-ID", "X-CSRF-Token"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Workspace-ID", "X-Workspace-Slug", "X-Request-ID", "X-Agent-ID", "X-Task-ID", "X-CSRF-Token", "X-Client-Platform", "X-Client-Version", "X-Client-OS"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
-	// Health check
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	// Health / readiness checks
+	r.Get("/health", health.liveHandler)
+	r.Get("/readyz", health.readyHandler)
+	r.Get("/healthz", health.readyHandler)
+
+	// Realtime subsystem metrics — connection counts, slow-client evictions,
+	// and per-event-type send QPS counters. Exposed as JSON so it can be
+	// scraped by ops or surfaced in the admin UI without adding a Prometheus
+	// dependency. See MUL-1138 (Phase 0).
+	//
+	// Access is restricted (MUL-1342): when REALTIME_METRICS_TOKEN is set,
+	// callers must present it via Authorization: Bearer <token>. When the
+	// env var is unset the handler only serves loopback callers so local
+	// dev keeps working without exposing the metrics on a public listener.
+	r.Get("/health/realtime", realtimeMetricsHandler(os.Getenv("REALTIME_METRICS_TOKEN")))
 
 	// WebSocket
 	mc := &membershipChecker{queries: queries}
+	pr := &patResolver{queries: queries, cache: patCache}
 	slugResolver := realtime.SlugResolver(func(ctx context.Context, slug string) (string, error) {
 		ws, err := queries.GetWorkspaceBySlug(ctx, slug)
 		if err != nil {
@@ -120,13 +185,15 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		r.Post("/register", h.DaemonRegister)
 		r.Post("/deregister", h.DaemonDeregister)
 		r.Post("/heartbeat", h.DaemonHeartbeat)
+		r.Get("/ws", h.DaemonWebSocket)
 		r.Get("/workspaces/{workspaceId}/repos", h.GetDaemonWorkspaceRepos)
 
 		r.Post("/runtimes/{runtimeId}/tasks/claim", h.ClaimTaskByRuntime)
 		r.Get("/runtimes/{runtimeId}/tasks/pending", h.ListPendingTasksByRuntime)
-		r.Post("/runtimes/{runtimeId}/ping/{pingId}/result", h.ReportPingResult)
 		r.Post("/runtimes/{runtimeId}/update/{updateId}/result", h.ReportUpdateResult)
 		r.Post("/runtimes/{runtimeId}/models/{requestId}/result", h.ReportModelListResult)
+		r.Post("/runtimes/{runtimeId}/local-skills/{requestId}/result", h.ReportLocalSkillListResult)
+		r.Post("/runtimes/{runtimeId}/local-skills/import/{requestId}/result", h.ReportLocalSkillImportResult)
 
 		r.Get("/tasks/{taskId}/status", h.GetTaskStatus)
 		r.Post("/tasks/{taskId}/start", h.StartTask)
@@ -138,6 +205,9 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		r.Get("/tasks/{taskId}/messages", h.ListTaskMessages)
 
 		r.Get("/issues/{issueId}/gc-check", h.GetIssueGCCheck)
+
+		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
+		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
 	})
 
 	// Protected API routes
@@ -145,10 +215,11 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 		r.Use(middleware.LocalUser(identity.UserID))
 
 		// --- User-scoped routes (no workspace context required) ---
-		r.Get("/api/config", h.GetConfig)
 		r.Get("/api/me", h.GetMe)
 		r.Patch("/api/me", h.UpdateMe)
+
 		r.Post("/api/upload-file", h.UploadFile)
+		r.Post("/api/feedback", h.CreateFeedback)
 
 		r.Route("/api/workspaces", func(r chi.Router) {
 			r.Get("/", h.ListWorkspaces)
@@ -182,6 +253,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 				r.Get("/child-progress", h.ChildIssueProgress)
 				r.Get("/", h.ListIssues)
 				r.Post("/", h.CreateIssue)
+				r.Post("/quick-create", h.QuickCreateIssue)
 				r.Post("/batch-update", h.BatchUpdateIssues)
 				r.Post("/batch-delete", h.BatchDeleteIssues)
 				r.Route("/{id}", func(r chi.Router) {
@@ -196,6 +268,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Post("/unsubscribe", h.UnsubscribeFromIssue)
 					r.Get("/active-task", h.GetActiveTaskForIssue)
 					r.Post("/tasks/{taskId}/cancel", h.CancelTask)
+					r.Post("/rerun", h.RerunIssue)
 					r.Get("/task-runs", h.ListTasksByIssue)
 					r.Get("/usage", h.GetIssueUsage)
 					r.Post("/reactions", h.AddIssueReaction)
@@ -231,6 +304,9 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Get("/", h.GetProject)
 					r.Put("/", h.UpdateProject)
 					r.Delete("/", h.DeleteProject)
+					r.Get("/resources", h.ListProjectResources)
+					r.Post("/resources", h.CreateProjectResource)
+					r.Delete("/resources/{resourceId}", h.DeleteProjectResource)
 				})
 			})
 
@@ -281,6 +357,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Put("/", h.UpdateAgent)
 					r.Post("/archive", h.ArchiveAgent)
 					r.Post("/restore", h.RestoreAgent)
+					r.Post("/cancel-tasks", h.CancelAgentTasks)
 					r.Get("/tasks", h.ListAgentTasks)
 					r.Get("/skills", h.ListAgentSkills)
 					r.Put("/skills", h.SetAgentSkills)
@@ -313,19 +390,35 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 				r.Get("/", h.ListAgentRuntimes)
 				r.Route("/{runtimeId}", func(r chi.Router) {
 					r.Get("/usage", h.GetRuntimeUsage)
+					r.Get("/usage/by-agent", h.GetRuntimeUsageByAgent)
+					r.Get("/usage/by-hour", h.GetRuntimeUsageByHour)
 					r.Get("/activity", h.GetRuntimeTaskActivity)
-					r.Post("/ping", h.InitiatePing)
-					r.Get("/ping/{pingId}", h.GetPing)
 					r.Post("/update", h.InitiateUpdate)
 					r.Get("/update/{updateId}", h.GetUpdate)
 					r.Post("/models", h.InitiateListModels)
 					r.Get("/models/{requestId}", h.GetModelListRequest)
+					r.Post("/local-skills", h.InitiateListLocalSkills)
+					r.Get("/local-skills/{requestId}", h.GetLocalSkillListRequest)
+					r.Post("/local-skills/import", h.InitiateImportLocalSkill)
+					r.Get("/local-skills/import/{requestId}", h.GetLocalSkillImportRequest)
 					r.Delete("/", h.DeleteAgentRuntime)
 				})
 			})
 
 			// Tasks (user-facing, with ownership check)
 			r.Post("/api/tasks/{taskId}/cancel", h.CancelTaskByUser)
+
+			// Workspace-wide agent task snapshot for presence derivation:
+			// every active task + each agent's most recent terminal task.
+			r.Get("/api/agent-task-snapshot", h.ListWorkspaceAgentTaskSnapshot)
+
+			// Workspace-wide daily agent activity (last 30d, anchored on
+			// completed_at). Backs the Agents-list sparkline (trailing 7d
+			// slice) AND the agent detail "Last 30 days" panel.
+			r.Get("/api/agent-activity-30d", h.GetWorkspaceAgentActivity30d)
+
+			// Workspace-wide 30-day run counts per agent for the Agents-list RUNS column.
+			r.Get("/api/agent-run-counts", h.GetWorkspaceAgentRunCounts)
 
 			r.Route("/api/chat/sessions", func(r chi.Router) {
 				r.Post("/", h.CreateChatSession)
@@ -352,6 +445,12 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 				r.Post("/{id}/read", h.MarkInboxRead)
 				r.Post("/{id}/archive", h.ArchiveInboxItem)
 			})
+
+			// Notification preferences
+			r.Route("/api/notification-preferences", func(r chi.Router) {
+				r.Get("/", h.GetNotificationPreferences)
+				r.Put("/", h.UpdateNotificationPreferences)
+			})
 		})
 	})
 
@@ -371,10 +470,37 @@ func (mc *membershipChecker) IsMember(ctx context.Context, userID, workspaceID s
 	return err == nil
 }
 
-func parseUUID(s string) pgtype.UUID {
-	var u pgtype.UUID
-	if err := u.Scan(s); err != nil {
-		return pgtype.UUID{}
+// patResolver implements realtime.PATResolver using database queries.
+type patResolver struct {
+	queries *db.Queries
+	cache   *auth.PATCache
+}
+
+func (pr *patResolver) ResolveToken(ctx context.Context, token string) (string, bool) {
+	hash := auth.HashToken(token)
+
+	if userID, ok := pr.cache.Get(ctx, hash); ok {
+		return userID, true
 	}
-	return u
+
+	pat, err := pr.queries.GetPersonalAccessTokenByHash(ctx, hash)
+	if err != nil {
+		return "", false
+	}
+
+	userID := util.UUIDToString(pat.UserID)
+
+	var expiresAt time.Time
+	if pat.ExpiresAt.Valid {
+		expiresAt = pat.ExpiresAt.Time
+	}
+	pr.cache.Set(ctx, hash, userID, auth.TTLForExpiry(time.Now(), expiresAt))
+
+	go pr.queries.UpdatePersonalAccessTokenLastUsed(context.Background(), pat.ID)
+
+	return userID, true
+}
+
+func parseUUID(s string) pgtype.UUID {
+	return util.MustParseUUID(s)
 }

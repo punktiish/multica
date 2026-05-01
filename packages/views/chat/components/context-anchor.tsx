@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Focus } from "lucide-react";
 import type { ContextAnchor } from "@multica/core/chat";
@@ -35,40 +34,9 @@ export function buildAnchorMarkdown(anchor: ContextAnchor): string {
 }
 
 /**
- * Returns true when the given pathname can resolve to an anchor candidate
- * (issue detail, project detail, or inbox). Used by both the resolver and
- * the tracker so they agree on which routes are anchor-eligible.
- */
-function isAnchorEligiblePath(pathname: string): boolean {
-  if (/^\/[^/]+\/issues\/[^/]+$/.test(pathname)) return true;
-  if (/^\/[^/]+\/projects\/[^/]+$/.test(pathname)) return true;
-  if (/^\/[^/]+\/inbox$/.test(pathname)) return true;
-  return false;
-}
-
-/**
- * Runs an effect that remembers the last anchor-eligible location the user
- * visited. Mount this in a component that's present on every page (the app
- * sidebar) so the chat page — which is its own route and therefore has no
- * anchor of its own — can still know what the user was just looking at.
- */
-export function useAnchorTracker(): void {
-  const { pathname, searchParams } = useNavigation();
-  const setLastAnchorLocation = useChatStore((s) => s.setLastAnchorLocation);
-  useEffect(() => {
-    if (!isAnchorEligiblePath(pathname)) return;
-    setLastAnchorLocation({ pathname, search: searchParams.toString() });
-  }, [pathname, searchParams, setLastAnchorLocation]);
-}
-
-/**
  * Resolve the current page into an anchorable candidate, or null if the user
  * is somewhere without a natural focus object. Subscribes via react-query so
  * the result updates the instant the relevant cache fills.
- *
- * When the user is on the Chat route (no intrinsic anchor), falls back to
- * the last anchor-eligible location remembered by `useAnchorTracker`, so
- * "open Chat from an issue → focus mode still attaches that issue" works.
  *
  * `wsId` is passed in (per CLAUDE.md convention) so this hook works outside
  * a WorkspaceIdProvider if ever reused elsewhere.
@@ -78,20 +46,10 @@ export function useRouteAnchorCandidate(wsId: string): {
   isResolving: boolean;
 } {
   const { pathname, searchParams } = useNavigation();
-  const lastAnchorLocation = useChatStore((s) => s.lastAnchorLocation);
 
-  // On the Chat route there's no intrinsic anchor; substitute the last
-  // anchor-eligible location the user visited. Anywhere else, use the
-  // live route directly.
-  const useFallback = !isAnchorEligiblePath(pathname) && !!lastAnchorLocation;
-  const effectivePath = useFallback ? lastAnchorLocation!.pathname : pathname;
-  const effectiveSearch = useFallback
-    ? new URLSearchParams(lastAnchorLocation!.search)
-    : searchParams;
-
-  const issueMatch = effectivePath.match(/^\/[^/]+\/issues\/([^/]+)$/);
-  const projectMatch = effectivePath.match(/^\/[^/]+\/projects\/([^/]+)$/);
-  const isInbox = /^\/[^/]+\/inbox$/.test(effectivePath);
+  const issueMatch = pathname.match(/^\/[^/]+\/issues\/([^/]+)$/);
+  const projectMatch = pathname.match(/^\/[^/]+\/projects\/([^/]+)$/);
+  const isInbox = /^\/[^/]+\/inbox$/.test(pathname);
 
   const routeIssueId = issueMatch ? decodeURIComponent(issueMatch[1]!) : null;
   const routeProjectId = projectMatch
@@ -103,7 +61,7 @@ export function useRouteAnchorCandidate(wsId: string): {
     ...inboxListOptions(wsId),
     enabled: isInbox,
   });
-  const inboxKey = isInbox ? effectiveSearch.get("issue") : null;
+  const inboxKey = isInbox ? searchParams.get("issue") : null;
   const inboxSelectedIssueId =
     isInbox && inboxKey
       ? inboxItems.find((i) => (i.issue_id ?? i.id) === inboxKey)?.issue_id ??
@@ -151,13 +109,13 @@ export function useRouteAnchorCandidate(wsId: string): {
 }
 
 /**
- * Focus-mode toggle. Three visual states driven by two dimensions:
- *   - focusMode (persisted)       on | off
- *   - candidate present           yes | no
+ * Focus-mode toggle. Disabled whenever the current page has no anchor
+ * (nothing to share) — focusMode persists across such pages, so returning
+ * to an anchorable page restores the user's prior on/off choice.
  *
- *   off                   →  ghost + muted, clickable (→ turns on)
+ *   no candidate          →  disabled
+ *   off + candidate       →  ghost + muted, clickable (→ turns on)
  *   on  + candidate       →  secondary (bright), clickable (→ turns off)
- *   on  + no candidate    →  disabled (can't click until a focus target exists)
  */
 export function ContextAnchorButton() {
   const wsId = useWorkspaceId();
@@ -166,16 +124,16 @@ export function ContextAnchorButton() {
   const setFocusMode = useChatStore((s) => s.setFocusMode);
 
   const hasAnchor = !!candidate;
-  const isDisabled = focusMode && !hasAnchor && !isResolving;
+  const isDisabled = !hasAnchor && !isResolving;
   const isBright = focusMode && hasAnchor;
 
-  const tooltipText = !focusMode
-    ? "Let Multica know what you're viewing"
-    : hasAnchor
+  const tooltipText = isDisabled
+    ? "Nothing to share with Multica on this page"
+    : focusMode && candidate
       ? candidate.type === "issue"
         ? `Multica knows you're viewing ${candidate.label} · Click to turn off`
         : `Multica knows you're viewing project "${candidate.label}" · Click to turn off`
-      : "Nothing to share with Multica on this page";
+      : "Let Multica know what you're viewing";
 
   return (
     <Tooltip>

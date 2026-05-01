@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { WSClient } from "../api/ws-client";
-import type { WSEventType } from "../types";
+import type { WSEventType, StorageAdapter } from "../types";
+import type { ClientIdentity } from "../platform/types";
 import type { StoreApi, UseBoundStore } from "zustand";
 import type { AuthState } from "../auth/store";
 import {
@@ -35,6 +36,12 @@ export interface WSProviderProps {
   wsUrl: string;
   /** Platform-created auth store instance */
   authStore: UseBoundStore<StoreApi<AuthState>>;
+  /** Platform-specific storage adapter for reading auth tokens */
+  storage: StorageAdapter;
+  /** When true, use HttpOnly cookies instead of token query param for WS auth. */
+  cookieAuth?: boolean;
+  /** Identifies the WS client to the server (sent as query params on the upgrade URL). */
+  identity?: ClientIdentity;
   /** Optional callback for showing toast messages (platform-specific, e.g. sonner) */
   onToast?: (message: string, type?: "info" | "error") => void;
 }
@@ -43,6 +50,9 @@ export function WSProvider({
   children,
   wsUrl,
   authStore,
+  storage,
+  cookieAuth,
+  identity,
   onToast,
 }: WSProviderProps) {
   const user = authStore((s) => s.user);
@@ -58,11 +68,28 @@ export function WSProvider({
   );
   const [wsClient, setWsClient] = useState<WSClient | null>(null);
 
+  // Depend on identity primitives instead of the object reference so a parent
+  // re-render that passes a new `{ platform, version, os }` literal does not
+  // tear down and reconnect the WS when nothing about the identity actually
+  // changed.
+  const identityPlatform = identity?.platform;
+  const identityVersion = identity?.version;
+  const identityOS = identity?.os;
+
   useEffect(() => {
     if (!user || !wsSlug) return;
 
     const ws = new WSClient(wsUrl, {
       logger: createLogger("ws"),
+      cookieAuth,
+      identity:
+        identityPlatform || identityVersion || identityOS
+          ? {
+              platform: identityPlatform,
+              version: identityVersion,
+              os: identityOS,
+            }
+          : undefined,
     });
     ws.setWorkspace(wsSlug);
     setWsClient(ws);
@@ -72,7 +99,16 @@ export function WSProvider({
       ws.disconnect();
       setWsClient(null);
     };
-  }, [user, wsSlug, wsUrl]);
+  }, [
+    user,
+    wsSlug,
+    wsUrl,
+    storage,
+    cookieAuth,
+    identityPlatform,
+    identityVersion,
+    identityOS,
+  ]);
 
   const stores: RealtimeSyncStores = { authStore };
 

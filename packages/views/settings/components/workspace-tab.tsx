@@ -53,7 +53,6 @@ export function WorkspaceTab() {
 
   return (
     <div className="space-y-8">
-      {/* Workspace settings */}
       <section className="space-y-4">
         <h2 className="text-sm font-semibold">General</h2>
 

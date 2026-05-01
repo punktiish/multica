@@ -18,13 +18,14 @@ const SIZE_CLASS: Record<ProjectIconSize, string> = {
 export function ProjectIcon({ project, size = "sm", className }: ProjectIconProps) {
   return (
     <span
+      aria-hidden="true"
       className={cn(
-        "inline-flex items-center justify-center rounded-sm",
+        "inline-flex shrink-0 items-center justify-center",
         SIZE_CLASS[size],
         className,
       )}
     >
-      {project?.icon ?? "📁"}
+      {project?.icon || "📁"}
     </span>
   );
 }

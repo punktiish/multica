@@ -5,6 +5,7 @@ import type { Comment, Reaction } from "./comment";
 import type { TimelineEntry } from "./activity";
 import type { Workspace, MemberWithUser } from "./workspace";
 import type { Project } from "./project";
+import type { Label } from "./label";
 
 // WebSocket event types (matching Go server protocol/events.go)
 export type WSEventType =
@@ -18,6 +19,7 @@ export type WSEventType =
   | "agent:created"
   | "agent:archived"
   | "agent:restored"
+  | "task:queued"
   | "task:dispatch"
   | "task:progress"
   | "task:completed"
@@ -57,7 +59,12 @@ export type WSEventType =
   | "label:deleted"
   | "issue_labels:changed"
   | "pin:created"
-  | "pin:deleted";
+  | "pin:deleted"
+  | "pin:reordered"
+  | "invitation:created"
+  | "invitation:accepted"
+  | "invitation:declined"
+  | "invitation:revoked";
 
 export interface WSMessage<T = unknown> {
   type: WSEventType;
@@ -73,8 +80,9 @@ export interface IssueUpdatedPayload {
   issue: Issue;
 }
 
-export interface IssueDeletedPayload {
+export interface IssueLabelsChangedPayload {
   issue_id: string;
+  labels: Label[];
 }
 
 export interface AgentStatusPayload {
@@ -182,6 +190,22 @@ export interface TaskMessagePayload {
   content?: string;
   input?: Record<string, unknown>;
   output?: string;
+}
+
+export interface TaskQueuedPayload {
+  task_id: string;
+  agent_id: string;
+  issue_id: string;
+  chat_session_id?: string;
+  status: string;
+}
+
+export interface TaskDispatchPayload {
+  task_id: string;
+  agent_id: string;
+  issue_id: string;
+  runtime_id: string;
+  chat_session_id?: string;
 }
 
 export interface TaskCompletedPayload {

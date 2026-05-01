@@ -36,6 +36,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/
 import type { Project, ProjectStatus, ProjectPriority, UpdateProjectRequest } from "@multica/core/types";
 import { PageHeader } from "../../layout/page-header";
 import { PriorityIcon } from "../../issues/components/priority-icon";
+import { ProjectIcon } from "./project-icon";
 import { RepoPicker } from "./repo-picker";
 
 function formatRelativeDate(date: string): string {
@@ -73,16 +74,14 @@ function ProjectRow({ project, repos }: { project: Project; repos: { path: strin
 
   return (
     <div className="group/row flex h-11 items-center gap-2 px-5 text-sm transition-colors hover:bg-accent/40">
-      {/* Icon + Name (navigates to detail) */}
       <AppLink
         href={wsPaths.projectDetail(project.id)}
         className="flex min-w-0 flex-1 items-center gap-2"
       >
-        <span className="shrink-0 w-[24px] text-center text-base">{project.icon || "📁"}</span>
+        <ProjectIcon project={project} size="md" />
         <span className="min-w-0 flex-1 truncate font-medium">{project.title}</span>
       </AppLink>
 
-      {/* Priority — dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -103,7 +102,6 @@ function ProjectRow({ project, repos }: { project: Project; repos: { path: strin
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Status — dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -126,7 +124,6 @@ function ProjectRow({ project, repos }: { project: Project; repos: { path: strin
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Progress (read-only) */}
       <span className="flex w-24 items-center justify-center gap-1.5 shrink-0">
         {project.issue_count > 0 ? (
           <>
@@ -155,14 +152,14 @@ function ProjectRow({ project, repos }: { project: Project; repos: { path: strin
         />
       </span>
 
-      {/* Lead — popover */}
+      {/* Lead */}
       <Popover open={leadOpen} onOpenChange={(v) => { setLeadOpen(v); if (!v) setLeadFilter(""); }}>
         <PopoverTrigger
           render={
             <button type="button" className="flex w-10 items-center justify-center shrink-0 rounded-full hover:ring-2 hover:ring-accent transition-all cursor-pointer">
               {project.lead_type && project.lead_id ? (
                 <Tooltip>
-                  <TooltipTrigger render={<span><ActorAvatar actorType={project.lead_type} actorId={project.lead_id} size={22} /></span>} />
+                  <TooltipTrigger render={<span><ActorAvatar actorType={project.lead_type} actorId={project.lead_id} size={22} enableHoverCard /></span>} />
                   <TooltipContent side="bottom">{getActorName(project.lead_type, project.lead_id)}</TooltipContent>
                 </Tooltip>
               ) : (
@@ -216,7 +213,7 @@ function ProjectRow({ project, repos }: { project: Project; repos: { path: strin
                     onClick={() => { handleUpdate({ lead_type: "agent", lead_id: a.id }); setLeadOpen(false); }}
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
                   >
-                    <ActorAvatar actorType="agent" actorId={a.id} size={16} />
+                    <ActorAvatar actorType="agent" actorId={a.id} size={16} showStatusDot />
                     <span>{a.name}</span>
                   </button>
                 ))}
@@ -229,7 +226,6 @@ function ProjectRow({ project, repos }: { project: Project; repos: { path: strin
         </PopoverContent>
       </Popover>
 
-      {/* Created */}
       <span className="w-20 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
         {formatRelativeDate(project.created_at)}
       </span>
@@ -247,7 +243,6 @@ export function ProjectsPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header bar */}
       <PageHeader className="justify-between px-5">
         <div className="flex items-center gap-2">
           <FolderKanban className="h-4 w-4 text-muted-foreground" />
@@ -262,7 +257,6 @@ export function ProjectsPage() {
         </Button>
       </PageHeader>
 
-      {/* Table */}
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <>
@@ -292,9 +286,7 @@ export function ProjectsPage() {
           </div>
         ) : (
           <>
-            {/* Column headers */}
             <div className="sticky top-0 z-[1] flex h-8 items-center gap-2 border-b bg-muted/30 px-5 text-xs font-medium text-muted-foreground">
-              {/* Icon spacer + Name */}
               <span className="shrink-0 w-[24px]" />
               <span className="min-w-0 flex-1">Name</span>
               <span className="w-24 text-center shrink-0">Priority</span>
@@ -304,7 +296,6 @@ export function ProjectsPage() {
               <span className="w-10 text-center shrink-0">Lead</span>
               <span className="w-20 text-right shrink-0">Created</span>
             </div>
-            {/* Rows */}
             {projects.map((project) => (
               <ProjectRow key={project.id} project={project} repos={repos} />
             ))}

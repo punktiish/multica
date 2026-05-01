@@ -1,3 +1,5 @@
+import type { Label } from "./label";
+
 export type IssueStatus =
   | "backlog"
   | "todo"

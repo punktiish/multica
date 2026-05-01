@@ -3,10 +3,22 @@ import { type Logger, noopLogger } from "../logger";
 
 type EventHandler = (payload: unknown, actorId?: string) => void;
 
+/** Identifies the WS client to the server. Sent as `client_platform`,
+ *  `client_version`, and `client_os` query parameters on the upgrade URL —
+ *  browsers cannot set custom headers on WebSocket handshakes, so query
+ *  params are the only portable channel. */
+export interface WSClientIdentity {
+  platform?: string;
+  version?: string;
+  os?: string;
+}
+
 export class WSClient {
   private ws: WebSocket | null = null;
   private baseUrl: string;
   private workspaceSlug: string | null = null;
+  private cookieAuth = false;
+  private identity: WSClientIdentity | undefined;
   private handlers = new Map<WSEventType, Set<EventHandler>>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private hasConnectedBefore = false;
@@ -14,9 +26,18 @@ export class WSClient {
   private anyHandlers = new Set<(msg: WSMessage) => void>();
   private logger: Logger;
 
-  constructor(url: string, options?: { logger?: Logger }) {
+  constructor(
+    url: string,
+    options?: {
+      logger?: Logger;
+      cookieAuth?: boolean;
+      identity?: WSClientIdentity;
+    },
+  ) {
     this.baseUrl = url;
     this.logger = options?.logger ?? noopLogger;
+    this.cookieAuth = options?.cookieAuth ?? false;
+    this.identity = options?.identity;
   }
 
   setWorkspace(workspaceSlug: string) {
@@ -27,6 +48,12 @@ export class WSClient {
     const url = new URL(this.baseUrl);
     if (this.workspaceSlug)
       url.searchParams.set("workspace_slug", this.workspaceSlug);
+    if (this.identity?.platform)
+      url.searchParams.set("client_platform", this.identity.platform);
+    if (this.identity?.version)
+      url.searchParams.set("client_version", this.identity.version);
+    if (this.identity?.os)
+      url.searchParams.set("client_os", this.identity.os);
 
     this.ws = new WebSocket(url.toString());
 

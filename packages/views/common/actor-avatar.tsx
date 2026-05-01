@@ -1,31 +1,53 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { ActorAvatar as ActorAvatarBase } from "@multica/ui/components/common/actor-avatar";
+import {
+  HoverCard,
+  HoverCardTrigger,
+  HoverCardContent,
+} from "@multica/ui/components/ui/hover-card";
 import { useActorName } from "@multica/core/workspace/hooks";
+import { useAgentPresenceDetail } from "@multica/core/agents";
+import { useCurrentWorkspace } from "@multica/core/paths";
+import { AgentProfileCard } from "../agents/components/agent-profile-card";
+import { MemberProfileCard } from "../members/member-profile-card";
+import { availabilityConfig } from "../agents/presence";
 
 interface ActorAvatarProps {
   actorType: string;
   actorId: string;
   size?: number;
   className?: string;
-  disableHoverCard?: boolean;
+  /**
+   * Wrap the avatar in a hover-card preview on dwell. Use for "who is this?"
+   * surfaces — comment authors, list rows, subscriber chips. Independent of
+   * `showStatusDot`: a surface can have one, both, or neither.
+   */
+  enableHoverCard?: boolean;
+  /**
+   * Overlay an agent-presence dot at the avatar's bottom-right. Use at
+   * decision moments (picker rows, current-assignee display, agent-centric
+   * surfaces). Has no effect for non-agent actors. Independent of
+   * `enableHoverCard` so picker rows can show the dot without nesting a
+   * popover inside the dropdown.
+   */
+  showStatusDot?: boolean;
 }
 
-export function ActorAvatar({ actorType, actorId, size, className, disableHoverCard }: ActorAvatarProps) {
+const FOCUSABLE_ANCESTOR_SELECTOR =
+  'a[href], button:not([disabled]), [role="button"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])';
+
+export function ActorAvatar({
+  actorType,
+  actorId,
+  size,
+  className,
+  enableHoverCard,
+  showStatusDot,
+}: ActorAvatarProps) {
   const { getActorName, getActorInitials, getActorAvatarUrl } = useActorName();
-  if (disableHoverCard || actorType !== "agent") {
-    return (
-      <ActorAvatarBase
-        name={getActorName(actorType, actorId)}
-        initials={getActorInitials(actorType, actorId)}
-        avatarUrl={getActorAvatarUrl(actorType, actorId)}
-        isAgent={actorType === "agent"}
-        size={size}
-        className={className}
-      />
-    );
-  }
-  return (
+  const avatar = (
     <ActorAvatarBase
       name={getActorName(actorType, actorId)}
       initials={getActorInitials(actorType, actorId)}
@@ -34,5 +56,112 @@ export function ActorAvatar({ actorType, actorId, size, className, disableHoverC
       size={size}
       className={className}
     />
+  );
+
+  // Optional presence dot overlay. Only meaningful for agents — members have
+  // no presence backbone. Wrapping unconditionally with relative inline-flex
+  // would create extra DOM for every avatar; we only wrap when a dot is asked
+  // for.
+  const wrapDot = showStatusDot && actorType === "agent";
+  const dotted = wrapDot ? (
+    <span className="relative inline-flex">
+      {avatar}
+      <AgentStatusDot agentId={actorId} size={size} />
+    </span>
+  ) : (
+    avatar
+  );
+
+  if (!enableHoverCard) {
+    return dotted;
+  }
+  if (actorType === "agent") {
+    return <AgentAvatarHoverCard agentId={actorId}>{dotted}</AgentAvatarHoverCard>;
+  }
+  if (actorType === "member") {
+    return <MemberAvatarHoverCard userId={actorId}>{dotted}</MemberAvatarHoverCard>;
+  }
+  return dotted;
+}
+
+function AgentStatusDot({ agentId, size }: { agentId: string; size?: number }) {
+  const ws = useCurrentWorkspace();
+  const detail = useAgentPresenceDetail(ws?.id, agentId);
+  if (detail === "loading") return null;
+
+  const { dotClass, label } = availabilityConfig[detail.availability];
+  const dotSize = (size ?? 24) >= 24 ? "h-1.5 w-1.5" : "h-1 w-1";
+
+  return (
+    <span
+      aria-label={`Status: ${label}`}
+      title={label}
+      className={`absolute bottom-0 right-0 rounded-full ring-1 ring-background ${dotClass} ${dotSize}`}
+    />
+  );
+}
+
+function AgentAvatarHoverCard({
+  agentId,
+  children,
+}: {
+  agentId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <ActorAvatarHoverCardShell content={<AgentProfileCard agentId={agentId} />}>
+      {children}
+    </ActorAvatarHoverCardShell>
+  );
+}
+
+function MemberAvatarHoverCard({
+  userId,
+  children,
+}: {
+  userId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <ActorAvatarHoverCardShell content={<MemberProfileCard userId={userId} />}>
+      {children}
+    </ActorAvatarHoverCardShell>
+  );
+}
+
+function ActorAvatarHoverCardShell({
+  content,
+  children,
+}: {
+  content: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const [standalone, setStandalone] = useState(false);
+
+  useEffect(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const ancestor = el.parentElement?.closest(FOCUSABLE_ANCESTOR_SELECTOR);
+    setStandalone(!ancestor);
+  }, []);
+
+  return (
+    <HoverCard>
+      <HoverCardTrigger
+        render={<span ref={triggerRef} />}
+        tabIndex={standalone ? 0 : -1}
+        className={
+          standalone
+            ? "inline-flex cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            : "inline-flex cursor-pointer"
+        }
+      >
+        {children}
+      </HoverCardTrigger>
+      <HoverCardContent align="start" className="w-72">
+        {content}
+      </HoverCardContent>
+    </HoverCard>
   );
 }

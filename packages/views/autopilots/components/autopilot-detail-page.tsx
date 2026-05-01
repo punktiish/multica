@@ -28,13 +28,25 @@ import {
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@multica/ui/components/ui/alert-dialog";
+import {
   TriggerConfigSection,
   getDefaultTriggerConfig,
   toCronExpression,
 } from "./trigger-config";
 import type { TriggerConfig } from "./trigger-config";
 import type { AutopilotExecutionMode, AutopilotRun, AutopilotTrigger } from "@multica/core/types";
+import type { AgentTask } from "@multica/core/types/agent";
 import { ReadonlyContent } from "../../editor";
+import { TranscriptButton } from "../../common/task-transcript";
 import { AutopilotDialog } from "./autopilot-dialog";
 
 function formatDate(date: string): string {
@@ -53,10 +65,31 @@ const RUN_STATUS_CONFIG: Record<string, { label: string; color: string; icon: ty
   failed: { label: "Failed", color: "text-destructive", icon: XCircle },
 };
 
-function RunRow({ run }: { run: AutopilotRun }) {
+function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: string; agentName: string }) {
   const wsPaths = useWorkspacePaths();
   const cfg = (RUN_STATUS_CONFIG[run.status] ?? RUN_STATUS_CONFIG["issue_created"])!;
   const StatusIcon = cfg.icon;
+
+  const syntheticTask: AgentTask | null = run.task_id
+    ? {
+        id: run.task_id,
+        agent_id: agentId,
+        runtime_id: "",
+        issue_id: "",
+        status:
+          run.status === "running" ? "running" :
+          run.status === "completed" ? "completed" :
+          run.status === "failed" ? "failed" :
+          "queued",
+        priority: 0,
+        dispatched_at: null,
+        started_at: run.triggered_at || null,
+        completed_at: run.completed_at || null,
+        result: null,
+        error: run.failure_reason || null,
+        created_at: run.created_at,
+      }
+    : null;
 
   const content = (
     <>
@@ -73,6 +106,14 @@ function RunRow({ run }: { run: AutopilotRun }) {
       <span className="w-32 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
         {formatDate(run.triggered_at || run.created_at)}
       </span>
+      {syntheticTask && !run.issue_id && (
+        <TranscriptButton
+          task={syntheticTask}
+          agentName={agentName}
+          isLive={run.status === "running"}
+          title="View execution log"
+        />
+      )}
     </>
   );
 
@@ -91,6 +132,21 @@ function RunRow({ run }: { run: AutopilotRun }) {
 
 function TriggerRow({ trigger, autopilotId }: { trigger: AutopilotTrigger; autopilotId: string }) {
   const deleteTrigger = useDeleteAutopilotTrigger();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteTrigger.mutateAsync({ autopilotId, triggerId: trigger.id });
+      toast.success("Trigger deleted");
+      setConfirmOpen(false);
+    } catch {
+      toast.error("Failed to delete trigger");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="flex items-center gap-3 rounded-md border px-3 py-2">
@@ -121,13 +177,30 @@ function TriggerRow({ trigger, autopilotId }: { trigger: AutopilotTrigger; autop
         size="icon"
         variant="ghost"
         className="h-7 w-7 shrink-0"
-        onClick={() => {
-          deleteTrigger.mutate({ autopilotId, triggerId: trigger.id });
-          toast.success("Trigger deleted");
-        }}
+        onClick={() => setConfirmOpen(true)}
       >
         <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
       </Button>
+      <AlertDialog open={confirmOpen} onOpenChange={(v) => { if (!v && !deleting) setConfirmOpen(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete trigger</AlertDialogTitle>
+            <AlertDialogDescription>
+              This trigger will be removed and the autopilot will stop firing on this schedule. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -211,6 +284,8 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
 
   const [triggerDialogOpen, setTriggerDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   if (isLoading) {
     return (
@@ -271,12 +346,14 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
   };
 
   const handleDelete = async () => {
+    setDeleting(true);
     try {
       await deleteAutopilot.mutateAsync(autopilotId);
       toast.success("Autopilot deleted");
       router.push(wsPaths.autopilots());
     } catch {
       toast.error("Failed to delete autopilot");
+      setDeleting(false);
     }
   };
 
@@ -286,7 +363,6 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
       <PageHeader className="justify-between px-5">
         <div className="flex items-center gap-2">
           <AppLink href={wsPaths.autopilots()} className="text-muted-foreground hover:text-foreground transition-colors">
@@ -326,15 +402,14 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6 space-y-8">
-          {/* Properties */}
           <section className="space-y-4">
             <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Properties</h2>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <label className="text-xs text-muted-foreground">Agent</label>
                 <div className="mt-1 flex items-center gap-2">
-                  <ActorAvatar actorType="agent" actorId={autopilot.assignee_id} size={20} />
-                  <span>{getActorName("agent", autopilot.assignee_id)}</span>
+                  <ActorAvatar actorType="agent" actorId={autopilot.assignee_id} size={20} enableHoverCard showStatusDot />
+                  <span className="cursor-pointer">{getActorName("agent", autopilot.assignee_id)}</span>
                 </div>
               </div>
               <div>
@@ -354,7 +429,6 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
             </div>
           </section>
 
-          {/* Triggers */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Triggers</h2>
@@ -376,7 +450,6 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
             )}
           </section>
 
-          {/* Run History */}
           <section className="space-y-3">
             <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Run History</h2>
             {runsLoading ? (
@@ -392,16 +465,15 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
             ) : (
               <div className="rounded-md border overflow-hidden">
                 {runs.map((run) => (
-                  <RunRow key={run.id} run={run} />
+                  <RunRow key={run.id} run={run} agentId={autopilot.assignee_id} agentName={getActorName("agent", autopilot.assignee_id)} />
                 ))}
               </div>
             )}
           </section>
 
-          {/* Danger zone */}
           <section className="space-y-3 pt-4 border-t">
             <h2 className="text-sm font-medium text-destructive uppercase tracking-wider">Danger Zone</h2>
-            <Button size="sm" variant="destructive" onClick={handleDelete}>
+            <Button size="sm" variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>
               <Trash2 className="h-3.5 w-3.5 mr-1" />
               Delete autopilot
             </Button>
@@ -429,6 +501,29 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
           triggers={triggers}
         />
       )}
+      <AlertDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(v) => { if (!v && !deleting) setDeleteConfirmOpen(false); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete autopilot</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete &ldquo;{autopilot.title}&rdquo;, along with its triggers and run history. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

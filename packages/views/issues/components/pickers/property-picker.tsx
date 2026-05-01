@@ -7,13 +7,14 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@multica/ui/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@multica/ui/components/ui/tooltip";
 
 const HIGHLIGHT_CLASS = "bg-accent";
 const ITEM_SELECTOR = "button[data-picker-item]:not(:disabled)";
-
-// ---------------------------------------------------------------------------
-// PropertyPicker — generic Popover shell with optional search
-// ---------------------------------------------------------------------------
 
 export function PropertyPicker({
   open,
@@ -25,6 +26,8 @@ export function PropertyPicker({
   searchable = false,
   searchPlaceholder = "Filter...",
   onSearchChange,
+  header,
+  tooltip,
   children,
   footer,
 }: {
@@ -37,18 +40,16 @@ export function PropertyPicker({
   searchable?: boolean;
   searchPlaceholder?: string;
   onSearchChange?: (query: string) => void;
+  header?: React.ReactNode;
+  tooltip?: React.ReactNode;
   children: React.ReactNode;
-  /**
-   * Optional footer rendered below the listbox. Unlike items rendered as
-   * children, the footer is *not* included in arrow-key navigation — use it
-   * for actions like "Create new…" or "Manage…" that shouldn't be treated as
-   * selectable listbox options.
-   */
   footer?: React.ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [tooltipHover, setTooltipHover] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const tooltipOpen = !!tooltip && tooltipHover && !open;
 
   const getItems = useCallback(() => {
     if (!listRef.current) return [];
@@ -57,7 +58,6 @@ export function PropertyPicker({
     );
   }, []);
 
-  // Apply/remove highlight class via DOM when index changes
   useEffect(() => {
     const items = getItems();
     for (const item of items) {
@@ -66,7 +66,7 @@ export function PropertyPicker({
     if (highlightedIndex >= 0 && highlightedIndex < items.length) {
       items[highlightedIndex]?.classList.add(HIGHLIGHT_CLASS);
     }
-  }, [highlightedIndex, getItems, children]); // re-run when children change (filtered list updates)
+  }, [highlightedIndex, getItems, children]);
 
   const handleOpenChange = useCallback(
     (v: boolean) => {
@@ -104,7 +104,6 @@ export function PropertyPicker({
         if (highlightedIndex >= 0 && highlightedIndex < items.length) {
           items[highlightedIndex]?.click();
         } else if (items.length === 1) {
-          // Auto-select when only one result
           items[0]?.click();
         }
       }
@@ -112,14 +111,25 @@ export function PropertyPicker({
     [getItems, highlightedIndex],
   );
 
+  const popoverTrigger = (
+    <PopoverTrigger
+      className={triggerRender ? undefined : "flex items-center gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-accent/30 transition-colors overflow-hidden"}
+      render={triggerRender}
+    >
+      {trigger}
+    </PopoverTrigger>
+  );
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger
-        className={triggerRender ? undefined : "flex items-center gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-accent/30 transition-colors overflow-hidden"}
-        render={triggerRender}
-      >
-        {trigger}
-      </PopoverTrigger>
+      {tooltip ? (
+        <Tooltip open={tooltipOpen} onOpenChange={setTooltipHover}>
+          <TooltipTrigger render={popoverTrigger} />
+          <TooltipContent side="top">{tooltip}</TooltipContent>
+        </Tooltip>
+      ) : (
+        popoverTrigger
+      )}
       <PopoverContent align={align} className={`${width} gap-0 p-0`}>
         {searchable && (
           <div className="px-2 py-1.5 border-b">
@@ -138,50 +148,61 @@ export function PropertyPicker({
             />
           </div>
         )}
-        <div ref={listRef} className="p-1 max-h-60 overflow-y-auto">{children}</div>
+        {header && <div className="border-b">{header}</div>}
+        <div ref={listRef} className="p-1 max-h-72 overflow-y-auto">{children}</div>
         {footer && <div className="border-t p-1">{footer}</div>}
       </PopoverContent>
     </Popover>
   );
 }
 
-// ---------------------------------------------------------------------------
-// PickerItem — single selectable row
-// ---------------------------------------------------------------------------
-
 export function PickerItem({
   selected,
   disabled,
   onClick,
   hoverClassName,
+  tooltip,
   children,
 }: {
   selected: boolean;
   disabled?: boolean;
   onClick: () => void;
   hoverClassName?: string;
+  tooltip?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       data-picker-item
       disabled={disabled}
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm ${disabled ? "opacity-50 cursor-not-allowed" : hoverClassName ?? "hover:bg-accent"} transition-colors`}
+      className={`flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-sm ${disabled ? "opacity-50 cursor-not-allowed" : hoverClassName ?? "hover:bg-accent"} transition-colors`}
     >
       {/* min-w-0 lets long children (like truncated label names) shrink
           inside the flex row instead of pushing the selected checkmark off
-          the right edge. shrink-0 on the Check keeps it visible. */}
+          the right edge. The check column always reserves its 14px slot
+          (visible when selected, invisible otherwise) so unselected rows
+          align with selected rows and the eye doesn't chase a jittery
+          right edge. */}
       <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
-      {selected && <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+      <Check
+        className={`h-3.5 w-3.5 shrink-0 text-muted-foreground ${
+          selected ? "" : "invisible"
+        }`}
+      />
     </button>
   );
-}
 
-// ---------------------------------------------------------------------------
-// PickerSection — group header
-// ---------------------------------------------------------------------------
+  if (!tooltip) return button;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={button} />
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function PickerSection({
   label,
@@ -199,10 +220,6 @@ export function PickerSection({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// PickerEmpty — no results state
-// ---------------------------------------------------------------------------
 
 export function PickerEmpty() {
   return (

@@ -48,7 +48,7 @@ export function RepositoriesTab() {
     setRepos(repos.filter((_, i) => i !== index));
   };
 
-  const handleRepoChange = (index: number, field: keyof WorkspaceRepo, value: string) => {
+  const handleRepoChange = (index: number, field: string, value: string) => {
     setRepos(repos.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
   };
 
